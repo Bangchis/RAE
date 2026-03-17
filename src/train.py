@@ -6,6 +6,7 @@ Stage-2 SiT training script for torch-xla devices.
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import logging
 import math
 import os
@@ -33,13 +34,12 @@ import torch_xla.distributed.parallel_loader as pl
 
 from stage1 import RAE
 from stage2.models import Stage2ModelProtocol
-from stage2.transport import Sampler, create_transport
+from stage2.transport import create_transport
 from utils import wandb_utils
 from utils.model_utils import instantiate_from_config  # noqa: E402
 from utils.optim_utils import build_optimizer, build_scheduler
 from utils.train_utils import initialize_cache, set_random_seed, parse_configs
 from utils.sample_utils import manual_sample, make_timesteps  # noqa: E402
-from functools import partial
 #################################################################################
 #                             Training Helper Functions                         #
 #################################################################################
@@ -105,6 +105,80 @@ def center_crop_arr(pil_image: Image.Image, image_size: int) -> Image.Image:
     return Image.fromarray(arr[crop_y : crop_y + image_size, crop_x : crop_x + image_size])
 
 
+class IndexedImageFolder(ImageFolder):
+    """ImageFolder variant that also returns the dataset index for weighted eval."""
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, int, int]:
+        image, target = super().__getitem__(index)
+        return image, target, index
+
+
+def build_eval_index_weights(sampler: DistributedSampler, dataset_size: int) -> torch.Tensor:
+    """Compensate for DistributedSampler padding so eval means stay exact."""
+    if dataset_size <= 0:
+        raise ValueError("Evaluation dataset must contain at least one image.")
+
+    indices = list(range(dataset_size))
+    if not sampler.drop_last:
+        padding_size = sampler.total_size - len(indices)
+        if padding_size > 0:
+            if padding_size <= len(indices):
+                indices += indices[:padding_size]
+            else:
+                repeats = math.ceil(padding_size / len(indices))
+                indices += (indices * repeats)[:padding_size]
+    else:
+        indices = indices[: sampler.total_size]
+
+    counts = torch.bincount(torch.tensor(indices, dtype=torch.long), minlength=dataset_size).to(torch.float32)
+    return counts.reciprocal()
+
+
+@torch.no_grad()
+def run_validation_loss(
+    model: Stage2ModelProtocol,
+    rae: RAE,
+    transport: Any,
+    host_loader: DataLoader,
+    device: torch.device,
+    autocast_kwargs: Dict[str, Any],
+    index_weights: torch.Tensor,
+    reduce_prefix: str,
+    max_batches: Optional[int] = None,
+) -> tuple[float, int]:
+    weighted_loss_sum = 0.0
+    weighted_sample_count = 0.0
+    total_batches = 0
+    device_loader = pl.ParallelLoader(host_loader, [device]).per_device_loader(device)
+
+    for batch_idx, (images, labels, indices) in enumerate(device_loader):
+        if max_batches is not None and batch_idx >= max_batches:
+            break
+
+        images = images.to(device)
+        labels = labels.to(device)
+        indices = indices.to(device=device, dtype=torch.long)
+
+        with autocast(**autocast_kwargs):
+            latents = rae.encode(images)
+            batch_losses = transport.training_losses(model, latents, dict(y=labels))["loss"].to(torch.float32)
+
+        sample_weights = index_weights.index_select(0, indices)
+        weighted_loss_sum += (batch_losses * sample_weights).sum().item()
+        weighted_sample_count += sample_weights.sum().item()
+        total_batches += 1
+        xm.mark_step()
+
+    del device_loader
+
+    total_loss_sum = xm.mesh_reduce(f"{reduce_prefix}_loss_sum", weighted_loss_sum, sum)
+    total_weight = xm.mesh_reduce(f"{reduce_prefix}_sample_weight", weighted_sample_count, sum)
+    global_batches = int(xm.mesh_reduce(f"{reduce_prefix}_batch_count", total_batches, sum))
+    if total_weight <= 0:
+        raise RuntimeError("Validation loss reduction produced zero total weight.")
+    return float(total_loss_sum / total_weight), global_batches
+
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -113,8 +187,8 @@ def center_crop_arr(pil_image: Image.Image, image_size: int) -> Image.Image:
 def main(args: argparse.Namespace) -> None:
     """Train a SiT model using torch-xla native data parallelism."""
     initialize_cache(is_sample=False)
+    full_cfg = OmegaConf.load(args.config)
     device = xm.xla_device()
-    set_random_seed(args.global_seed)
     world_size = xm.xrt_world_size()
     (
         rae_config,
@@ -134,6 +208,7 @@ def main(args: argparse.Namespace) -> None:
             return {}
         return OmegaConf.to_container(cfg_section, resolve=True)  # type: ignore[return-value]
 
+    eval_cfg: Dict[str, Any] = to_dict(full_cfg.get("eval"))
     misc = to_dict(misc_config)
     transport_cfg = to_dict(transport_config)
     sampler_cfg = to_dict(sampler_config)
@@ -168,10 +243,37 @@ def main(args: argparse.Namespace) -> None:
     world_size = xm.xrt_world_size()
     rank = xm.get_ordinal()
     device = xm.xla_device()
+    set_random_seed(global_seed)
     if global_batch_size % (world_size * grad_accum_steps) != 0:
         raise ValueError("Global batch size must be divisible by world_size * grad_accum_steps.")
 
     micro_batch_size = global_batch_size // (world_size * grad_accum_steps)
+    eval_enabled = bool(eval_cfg)
+    eval_every = 0
+    eval_model = False
+    eval_batch_size = micro_batch_size
+    eval_num_workers = num_workers
+    eval_max_batches: Optional[int] = None
+    eval_data_path: Optional[str] = None
+    if eval_enabled:
+        eval_data_path = eval_cfg.get("data_path")
+        if not eval_data_path:
+            raise ValueError("eval.data_path must be specified when the eval block is enabled.")
+        eval_every = int(eval_cfg.get("eval_every", 0))
+        if eval_every <= 0:
+            raise ValueError("eval.eval_every must be greater than 0 when evaluation is enabled.")
+        eval_batch_size = int(eval_cfg.get("batch_size", micro_batch_size))
+        if eval_batch_size <= 0:
+            raise ValueError("eval.batch_size must be greater than 0.")
+        eval_num_workers = int(eval_cfg.get("num_workers", num_workers))
+        if eval_num_workers < 0:
+            raise ValueError("eval.num_workers must be >= 0.")
+        raw_max_batches = eval_cfg.get("max_batches")
+        if raw_max_batches is not None:
+            eval_max_batches = int(raw_max_batches)
+            if eval_max_batches <= 0:
+                raise ValueError("eval.max_batches must be greater than 0 when provided.")
+        eval_model = bool(eval_cfg.get("eval_model", False))
     use_bf16 = args.precision == "bf16"
     autocast_dtype = torch.bfloat16 if use_bf16 else torch.float32
     autocast_kwargs = dict(device=device, dtype=autocast_dtype, enabled=use_bf16)
@@ -220,7 +322,13 @@ def main(args: argparse.Namespace) -> None:
         if args.wandb:
             entity = os.environ["ENTITY"]
             project = os.environ["PROJECT"]
-            wandb_utils.initialize(args, entity, experiment_name, project)
+            wandb_utils.initialize(
+                args,
+                entity,
+                experiment_name,
+                project,
+                run_config=OmegaConf.to_container(full_cfg, resolve=True),
+            )
     else:
         experiment_dir = None
         checkpoint_dir = None
@@ -240,6 +348,7 @@ def main(args: argparse.Namespace) -> None:
 
     opt_state: Optional[Dict[str, Any]] = None
     sched_state: Optional[Dict[str, Any]] = None
+    start_epoch = 0
     train_steps = 0
 
     if args.ckpt is not None:
@@ -250,7 +359,9 @@ def main(args: argparse.Namespace) -> None:
             ema.load_state_dict(checkpoint["ema"])
         opt_state = checkpoint.get("opt")
         sched_state = checkpoint.get("scheduler")
+        start_epoch = int(checkpoint.get("epoch", 0))
         train_steps = int(checkpoint.get("train_steps", 0))
+        logger.info(f"Resumed checkpoint {args.ckpt} at epoch={start_epoch}, train_steps={train_steps}.")
 
     model_param_count = sum(p.numel() for p in model.parameters())
     logger.info(f"Model Parameters: {model_param_count / 1e6:.2f}M")
@@ -284,6 +395,39 @@ def main(args: argparse.Namespace) -> None:
         drop_last=True,
     )
     logger.info(f"Dataset contains {len(dataset):,} images ({args.data_path})")
+
+    eval_loader: Optional[DataLoader] = None
+    eval_index_weights: Optional[torch.Tensor] = None
+    if eval_enabled:
+        eval_transform = transforms.Compose(
+            [
+                transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, args.image_size)),
+                transforms.ToTensor(),
+            ]
+        )
+        eval_dataset = IndexedImageFolder(eval_data_path, transform=eval_transform)
+        eval_sampler = DistributedSampler(
+            eval_dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=False,
+            drop_last=False,
+        )
+        eval_loader = DataLoader(
+            eval_dataset,
+            batch_size=eval_batch_size,
+            shuffle=False,
+            sampler=eval_sampler,
+            num_workers=eval_num_workers,
+            pin_memory=True,
+            drop_last=False,
+        )
+        eval_index_weights = build_eval_index_weights(eval_sampler, len(eval_dataset)).to(device)
+        logger.info(
+            f"Evaluation dataset contains {len(eval_dataset):,} images ({eval_data_path}), "
+            f"eval_every={eval_every}, per-device eval batch={eval_batch_size}, max_batches={eval_max_batches}."
+        )
+
     logger.info(
         f"Gradient accumulation: steps={grad_accum_steps}, micro batch={micro_batch_size}, "
         f"per-device batch={micro_batch_size * grad_accum_steps}, global batch={global_batch_size}"
@@ -306,12 +450,10 @@ def main(args: argparse.Namespace) -> None:
         **transport_params,
         time_dist_shift=time_dist_shift,
     )
-    transport_sampler = Sampler(transport)
-
     if sampler_mode == "ODE":
         num_steps = int(sampler_params.get("num_steps", 50))
-        schedule = make_timesteps(num_steps=num_steps, t_min=1/1000, t_max=1.0, shift=1.0)
-        eval_sampler = partial(manual_sample, schedule=schedule, device=device)
+        schedule = make_timesteps(num_steps=num_steps, t_min=1 / 1000, t_max=1.0, shift=time_dist_shift)
+        sample_latents = partial(manual_sample, schedule=schedule, device=device)
     elif sampler_mode == "SDE":
         raise NotImplementedError("SDE sampling is not implemented yet.")
     else:
@@ -332,6 +474,7 @@ def main(args: argparse.Namespace) -> None:
 
     log_steps = 0
     running_loss = 0.0
+    running_grad_norm = 0.0
     start_time = time()
 
     ys = torch.randint(num_classes, size=(micro_batch_size,), device=device)
@@ -343,29 +486,31 @@ def main(args: argparse.Namespace) -> None:
         zs = torch.cat([zs, zs], dim=0)
         y_null = torch.full((n,), null_label, device=device)
         ys = torch.cat([ys, y_null], dim=0)
-        sample_model_kwargs: Dict[str, Any] = dict(
-            y=ys,
+        sample_labels = ys
+        sample_forward_kwargs: Dict[str, Any] = dict(
             cfg_scale=guidance_scale,
             cfg_interval=(t_min, t_max),
         )
         if guidance_method == "autoguidance":
             if guid_model_forward is None:
                 raise RuntimeError("Guidance model forward is not initialized.")
-            sample_model_kwargs["additional_model_forward"] = guid_model_forward
+            sample_forward_kwargs["additional_model_forward"] = guid_model_forward
             model_fn = ema.forward_with_autoguidance
         else:
             model_fn = ema.forward_with_cfg
     else:
-        sample_model_kwargs = dict(y=ys)
+        sample_labels = ys
+        sample_forward_kwargs = {}
         model_fn = ema.forward
 
     logger.info(f"Training for {epochs} epochs...")
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         sampler.set_epoch(epoch)
         logger.info(f"Beginning epoch {epoch}...")
         opt.zero_grad(set_to_none=True)
         accum_counter = 0
         step_loss_accum = 0.0
+        epoch_step = 0
         device_loader = pl.ParallelLoader(host_loader, [device]).per_device_loader(device)
         for x, y in device_loader:
             x = x.to(device)
@@ -382,35 +527,54 @@ def main(args: argparse.Namespace) -> None:
             if accum_counter < grad_accum_steps:
                 continue
 
+            grad_norm = None
             if clip_grad > 0:
-                clip_grad_norm_(model.parameters(), clip_grad)
+                grad_norm = clip_grad_norm_(model.parameters(), clip_grad)
             xm.optimizer_step(opt, barrier=True)
             schedl.step()
             update_ema(ema, model, decay=ema_decay)
             opt.zero_grad(set_to_none=True)
 
             running_loss += step_loss_accum / grad_accum_steps
+            if grad_norm is not None:
+                running_grad_norm += float(grad_norm)
             log_steps += 1
             train_steps += 1
+            epoch_step += 1
             accum_counter = 0
             step_loss_accum = 0.0
 
             if log_every > 0 and train_steps % log_every == 0 and log_steps > 0:
                 end_time = time()
-                steps_per_sec = log_steps / max(end_time - start_time, 1e-6)
+                optimizer_steps_per_sec = log_steps / max(end_time - start_time, 1e-6)
+                images_per_sec = optimizer_steps_per_sec * global_batch_size
                 avg_loss = torch.tensor(running_loss / log_steps, device=device)
-                avg_loss = xm.mesh_reduce("avg_loss", avg_loss, lambda x: sum(x) / len(x))
+                avg_loss = xm.mesh_reduce("train_loss", avg_loss, lambda x: sum(x) / len(x))
+                avg_grad_norm = None
+                if clip_grad > 0:
+                    grad_norm_tensor = torch.tensor(running_grad_norm / log_steps, device=device)
+                    avg_grad_norm = xm.mesh_reduce("train_grad_norm", grad_norm_tensor, lambda x: sum(x) / len(x))
                 if is_master:
+                    log_stats = {
+                        "train/loss": avg_loss.item(),
+                        "train/lr": opt.param_groups[0]["lr"],
+                        "train/optimizer_steps_per_sec": optimizer_steps_per_sec,
+                        "train/images_per_sec": images_per_sec,
+                        "train/epoch": epoch + (epoch_step / steps_per_epoch),
+                    }
+                    if avg_grad_norm is not None:
+                        log_stats["train/grad_norm"] = avg_grad_norm.item()
                     logger.info(
-                        f"(step={train_steps:07d}) Train Loss: {avg_loss.item():.4f}, "
-                        f"Train Steps/Sec: {steps_per_sec:.2f}"
+                        f"(step={train_steps:07d}) "
+                        f"train/loss={log_stats['train/loss']:.4f}, "
+                        f"train/lr={log_stats['train/lr']:.6f}, "
+                        f"train/optimizer_steps_per_sec={log_stats['train/optimizer_steps_per_sec']:.2f}, "
+                        f"train/images_per_sec={log_stats['train/images_per_sec']:.2f}"
                     )
                     if args.wandb:
-                        wandb_utils.log(
-                            {"train loss": avg_loss.item(), "train steps/sec": steps_per_sec},
-                            step=train_steps,
-                        )
+                        wandb_utils.log(log_stats, step=train_steps)
                 running_loss = 0.0
+                running_grad_norm = 0.0
                 log_steps = 0
                 start_time = time()
                 xm.rendezvous(f"log_{train_steps}")
@@ -437,19 +601,89 @@ def main(args: argparse.Namespace) -> None:
                     xm.save(checkpoint, checkpoint_path)
                     if is_master:
                         logger.info(f"Saved checkpoint to {checkpoint_path}")
+                        if args.wandb:
+                            wandb_utils.log({"checkpoint/last_saved_step": train_steps}, step=train_steps)
                 xm.rendezvous(f"checkpoint_{train_steps}")
+
+            if eval_enabled and eval_loader is not None and eval_index_weights is not None:
+                if train_steps % eval_every == 0 and train_steps > 0:
+                    xm.rendezvous(f"eval_start_{train_steps}")
+                    logger.info("Running validation loss evaluation...")
+                    eval_started_at = time()
+
+                    ema_loss, eval_batches = run_validation_loss(
+                        ema,
+                        rae,
+                        transport,
+                        eval_loader,
+                        device,
+                        autocast_kwargs,
+                        eval_index_weights,
+                        reduce_prefix="eval_ema",
+                        max_batches=eval_max_batches,
+                    )
+                    eval_stats: Dict[str, Any] = {
+                        "eval/ema_loss": ema_loss,
+                        "eval/duration_sec": time() - eval_started_at,
+                        "eval/num_batches": eval_batches,
+                    }
+
+                    if eval_model:
+                        model_was_training = model.training
+                        model.eval()
+                        model_loss, _ = run_validation_loss(
+                            model,
+                            rae,
+                            transport,
+                            eval_loader,
+                            device,
+                            autocast_kwargs,
+                            eval_index_weights,
+                            reduce_prefix="eval_model",
+                            max_batches=eval_max_batches,
+                        )
+                        eval_stats["eval/model_loss"] = model_loss
+                        if model_was_training:
+                            model.train()
+
+                    if is_master:
+                        logger.info(
+                            f"(step={train_steps:07d}) "
+                            f"eval/ema_loss={eval_stats['eval/ema_loss']:.4f}, "
+                            f"eval/num_batches={eval_stats['eval/num_batches']}, "
+                            f"eval/duration_sec={eval_stats['eval/duration_sec']:.2f}"
+                            + (
+                                f", eval/model_loss={eval_stats['eval/model_loss']:.4f}"
+                                if "eval/model_loss" in eval_stats
+                                else ""
+                            )
+                        )
+                        if args.wandb:
+                            wandb_utils.log(eval_stats, step=train_steps)
+                    xm.rendezvous(f"eval_done_{train_steps}")
 
             if sample_every > 0 and (train_steps % sample_every == 0 or train_steps == 1):
                 logger.info("Generating EMA samples...")
+                sample_started_at = time()
                 with torch.no_grad():
-                    with autocast(**autocast_kwargs): 
-                        samples = eval_sampler(model_fn, zs, **sample_model_kwargs)
+                    with autocast(**autocast_kwargs):
+                        samples = sample_latents(
+                            model_fn,
+                            zs,
+                            sample_labels,
+                            model_kwargs=sample_forward_kwargs,
+                        )
                         if using_cfg:
                             samples, _ = samples.chunk(2, dim=0)
                         samples = rae.decode(samples.to(torch.float32))
                 gathered_samples = xm.all_gather(samples, dim=0)
                 if args.wandb and is_master:
-                    wandb_utils.log_image(xm._maybe_convert_to_cpu(gathered_samples), train_steps)
+                    wandb_utils.log({"sample/duration_sec": time() - sample_started_at}, step=train_steps)
+                    wandb_utils.log_image(
+                        xm._maybe_convert_to_cpu(gathered_samples),
+                        step=train_steps,
+                        key="samples/ema",
+                    )
                 logger.info("Generating EMA samples done.")
                 xm.rendezvous(f"sample_{train_steps}")
             xm.mark_step()

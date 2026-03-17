@@ -101,6 +101,10 @@ misc:
    num_classes: 1000
 training:
    ...
+
+# Optional online validation during Stage 2 training.
+eval:
+   ...
 ```
 
 - `stage_1` instantiates the frozen encoder and trainable decoder. For Stage 1
@@ -114,6 +118,8 @@ training:
   stages.
 - `training` contains defaults that the training scripts consume (epochs,
   learning rate, EMA decay, gradient accumulation, etc.).
+- `eval` is optional and enables TPU-native validation loss during Stage 2
+  training without running FID online.
 
 Stage 1 training configs additionally include a top-level `gan` block that
 configures the discriminator architecture and the LPIPS/GAN loss schedule.
@@ -162,6 +168,50 @@ The script writes per-image PNGs as well as a packed `.npz` suitable for FID.
 
 For sampling, XLA branch only supports a manually implemented Euler sampler as `torchdiffeq` is not compatible with TPU.
 
+### Training
+
+Train Stage 2 on TPU with:
+
+```bash
+python src/train.py \
+  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --data-path <imagenet_train_split> \
+  --results-dir results \
+  --image-size 256 \
+  --precision bf16
+```
+
+To enable Weights & Biases logging, set:
+
+```bash
+export ENTITY=<wandb_entity>
+export PROJECT=<wandb_project>
+export WANDB_KEY=<wandb_api_key>
+```
+
+and add `--wandb` to the training command.
+
+Stage 2 training now logs the following namespaces:
+
+- `train/*`: loss, learning rate, optimizer steps/sec, images/sec, epoch, and gradient norm when clipping is enabled.
+- `eval/*`: periodic validation loss on a held-out ImageFolder split (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), eval duration, and eval batch count.
+- `checkpoint/*`: checkpoint save step.
+- `samples/ema`: EMA preview images logged at the training step.
+
+To enable online validation loss, add an optional `eval` block to the Stage 2 training config:
+
+```yaml
+eval:
+  data_path: data/imagenet/val/
+  eval_every: 5000
+  batch_size: 128        # per TPU core; defaults to the train micro batch size
+  num_workers: 4         # defaults to training.num_workers
+  max_batches: 32        # optional cap per rank to limit eval cost
+  eval_model: false      # set true to also evaluate the non-EMA model
+```
+
+This XLA branch only performs TPU-native validation loss online. FID/gFID remains an offline workflow.
+
 ### Sampling
 
 `src/sample.py` uses the same config schema to draw a small batch of images on a
@@ -193,6 +243,10 @@ Autoguidance and classifier-free guidance are controlled via the config’s
 
 ## Evaluation
 
+### Online validation during training (TPU)
+
+The `eval` block above runs held-out validation loss inside `src/train.py` and sends the resulting scalars to wandb when `--wandb` is enabled. It does not run FID or other sampling-based quality metrics.
+
 ### ADM Suite FID setup (only available on GPU)
 
 Use GPU with the ADM evaluation suite to score generated samples. You need to port the npz file generated from TPU to a GPU machine.
@@ -223,4 +277,3 @@ Use GPU with the ADM evaluation suite to score generated samples. You need to po
    ```bash
    python evaluator.py VIRTUAL_imagenet256_labeled.npz /path/to/samples.npz
    ```
-

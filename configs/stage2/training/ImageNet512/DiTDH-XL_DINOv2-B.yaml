@@ -58,6 +58,14 @@ misc:
   time_dist_shift_dim: 196608 # 16*16*768
   time_dist_shift_base: 4096
 
+# eval:
+#   data_path: 'data/imagenet/val/'
+#   eval_every: 5000
+#   batch_size: 128
+#   num_workers: 4
+#   max_batches: 32
+#   eval_model: false
+
 training:
   global_seed: 0
   epochs: 1400

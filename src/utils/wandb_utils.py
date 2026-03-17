@@ -1,13 +1,13 @@
-import wandb
-import torch
-from torchvision.utils import make_grid
-import torch.distributed as dist
-from PIL import Image
-import os
 import argparse
 import hashlib
 import math
+import os
+from typing import Any, Optional
+
+import torch
 import torch_xla.core.xla_model as xm
+import wandb
+from torchvision.utils import make_grid
 
 
 def is_main_process():
@@ -25,9 +25,18 @@ def generate_run_id(exp_name):
     return str(int(hashlib.sha256(exp_name.encode('utf-8')).hexdigest(), 16) % 10 ** 8)
 
 
-def initialize(args, entity, exp_name, project_name):
-    config_dict = namespace_to_dict(args)
-    wandb.login(key=os.environ["WANDB_KEY"])
+def initialize(
+    args,
+    entity,
+    exp_name,
+    project_name,
+    run_config: Optional[dict[str, Any]] = None,
+):
+    config_dict = {"cli": namespace_to_dict(args)}
+    if run_config is not None:
+        config_dict["config"] = run_config
+    if "WANDB_KEY" in os.environ:
+        wandb.login(key=os.environ["WANDB_KEY"])
     wandb.init(
         entity=entity,
         project=project_name,
@@ -43,10 +52,10 @@ def log(stats, step=None):
         wandb.log({k: v for k, v in stats.items()}, step=step)
 
 
-def log_image(sample, step=None):
+def log_image(sample, step=None, key="samples/ema"):
     if is_main_process():
         sample = array2grid(sample)
-        wandb.log({f"samples": wandb.Image(sample), "train_step": step})
+        wandb.log({key: wandb.Image(sample)}, step=step)
 
 
 def array2grid(x):
