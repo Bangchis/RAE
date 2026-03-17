@@ -67,6 +67,15 @@ misc:
 #   num_workers: 4
 #   max_batches: 32
 #   eval_model: false
+#   fid_ref: 'data/imagenet/VIRTUAL_imagenet256_labeled.npz'
+#   fid_every: 25000
+#   fid_num_samples: 4096
+#   fid_per_proc_batch_size: 4
+#   fid_batch_size: 64
+#   fid_device: 'cpu'
+#   fid_num_threads: 96
+#   fid_label_sampling: 'equal'
+#   fid_eval_model: false
 
 training:
   global_seed: 0

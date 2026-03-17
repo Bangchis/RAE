@@ -6,7 +6,6 @@ Distributed sampler for stage-2 models using torch-xla devices.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import random
@@ -28,8 +27,10 @@ from stage2.models import Stage2ModelProtocol  # noqa: E402
 from utils.train_utils import initialize_cache, set_random_seed  # noqa: E402
 from utils.model_utils import instantiate_from_config  # noqa: E402
 from utils.train_utils import parse_configs  # noqa: E402
-from utils.sample_utils import manual_sample, make_timesteps  # noqa: E402
+from utils.sample_utils import build_label_sampler, manual_sample, make_timesteps  # noqa: E402
+from utils.fid_utils import calculate_fid_from_path, write_fid_result  # noqa: E402
 from tqdm import tqdm  # noqa: E402
+
 
 def create_npz_from_sample_folder(sample_dir: str, num: int = 50_000) -> str:
     samples = []
@@ -42,58 +43,6 @@ def create_npz_from_sample_folder(sample_dir: str, num: int = 50_000) -> str:
     np.savez(npz_path, arr_0=samples)
     print(f"Saved .npz file to {npz_path} [shape={samples.shape}].")
     return npz_path
-
-
-def build_label_sampler(
-    sampling_mode: str,
-    num_classes: int,
-    num_fid_samples: int,
-    total_samples: int,
-    samples_needed_this_device: int,
-    batch_size: int,
-    device: torch.device,
-    rank: int,
-    iterations: int,
-    seed: int,
-) -> Callable[[int], torch.Tensor]:
-    if sampling_mode == "random":
-        def random_sampler(_step_idx: int) -> torch.Tensor:
-            return torch.randint(0, num_classes, (batch_size,), device=device)
-
-        return random_sampler
-
-    if sampling_mode == "equal":
-        if num_fid_samples % num_classes != 0:
-            raise ValueError(
-                f"Equal label sampling requires num_fid_samples ({num_fid_samples}) "
-                f"to be divisible by num_classes ({num_classes})."
-            )
-
-        labels_per_class = num_fid_samples // num_classes
-        base_pool = torch.arange(num_classes, dtype=torch.long).repeat_interleave(labels_per_class)
-
-        generator = torch.Generator()
-        generator.manual_seed(seed)
-        permutation = torch.randperm(base_pool.numel(), generator=generator)
-        base_pool = base_pool[permutation]
-
-        if total_samples > num_fid_samples:
-            tail = torch.randint(0, num_classes, (total_samples - num_fid_samples,), generator=generator)
-            global_pool = torch.cat([base_pool, tail], dim=0)
-        else:
-            global_pool = base_pool
-
-        start = rank * samples_needed_this_device
-        end = start + samples_needed_this_device
-        device_pool = global_pool[start:end]
-        device_pool = device_pool.view(iterations, batch_size)
-
-        def equal_sampler(step_idx: int) -> torch.Tensor:
-            labels = device_pool[step_idx]
-            return labels.to(device)
-
-        return equal_sampler
-    raise ValueError(f"Unknown label sampling mode: {sampling_mode}")
 
 
 def parse_guidance_value(cfg: Dict[str, Any], key: str, default: float) -> float:
@@ -294,7 +243,28 @@ def run_sampling(args: argparse.Namespace) -> None:
 
     xm.rendezvous("sampling_done")
     if rank == 0:
-        create_npz_from_sample_folder(sample_folder_dir, args.num_fid_samples)
+        npz_path = create_npz_from_sample_folder(sample_folder_dir, args.num_fid_samples)
+        if args.fid_ref is not None:
+            print(f"Computing FID from {npz_path} against {args.fid_ref} on {args.fid_device}...")
+            fid_value = calculate_fid_from_path(
+                npz_path,
+                args.fid_ref,
+                batch_size=args.fid_batch_size,
+                device=args.fid_device,
+                num_threads=args.fid_num_threads,
+            )
+            result_path = write_fid_result(
+                f"{sample_folder_dir}.fid.json",
+                fid=fid_value,
+                sample_path=npz_path,
+                reference_path=args.fid_ref,
+                batch_size=args.fid_batch_size,
+                device=args.fid_device,
+                num_samples=args.num_fid_samples,
+                num_threads=args.fid_num_threads,
+            )
+            print(f"FID: {fid_value:.6f}")
+            print(f"Saved FID result to {result_path}")
         print("Done.")
     xm.rendezvous("npz_done")
 
@@ -324,6 +294,31 @@ if __name__ == "__main__":
         choices=["random", "equal"],
         default="random",
         help="Choose how to sample class labels when generating images.",
+    )
+    parser.add_argument(
+        "--fid-ref",
+        type=str,
+        default=None,
+        help="Optional path to a reference statistics .npz file with mu/sigma to compute FID after sampling.",
+    )
+    parser.add_argument(
+        "--fid-device",
+        type=str,
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Device used for FID feature extraction when --fid-ref is set.",
+    )
+    parser.add_argument(
+        "--fid-batch-size",
+        type=int,
+        default=64,
+        help="Batch size for FID feature extraction when --fid-ref is set.",
+    )
+    parser.add_argument(
+        "--fid-num-threads",
+        type=int,
+        default=None,
+        help="Optional torch CPU thread count for FID feature extraction when --fid-ref is set.",
     )
 
     parsed_args = parser.parse_args()

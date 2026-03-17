@@ -32,7 +32,7 @@ TorchXLA/TPU:
    uv pip install torch~=2.5.0 torch_xla[tpu]~=2.5.0 torchvision==0.20.1 -f https://storage.googleapis.com/libtpu-releases/index.html
    
    # Install other dependencies
-   uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb
+   uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
    uv pip install "numpy<2" transformers einops
    ```
 
@@ -194,7 +194,7 @@ and add `--wandb` to the training command.
 Stage 2 training now logs the following namespaces:
 
 - `train/*`: loss, learning rate, optimizer steps/sec, images/sec, epoch, and gradient norm when clipping is enabled.
-- `eval/*`: periodic validation loss on a held-out ImageFolder split (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), eval duration, and eval batch count.
+- `eval/*`: periodic validation loss on a held-out ImageFolder split (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), and optional FID metrics (`eval/ema_fid`, `eval/model_fid`) when configured.
 - `checkpoint/*`: checkpoint save step.
 - `samples/ema`: EMA preview images logged at the training step.
 
@@ -208,9 +208,20 @@ eval:
   num_workers: 4         # defaults to training.num_workers
   max_batches: 32        # optional cap per rank to limit eval cost
   eval_model: false      # set true to also evaluate the non-EMA model
+  fid_ref: data/imagenet/VIRTUAL_imagenet256_labeled.npz
+  fid_every: 25000       # defaults to eval_every when omitted
+  fid_num_samples: 4096  # trade off speed vs stability (e.g. 1024 / 4096 / 50000)
+  fid_per_proc_batch_size: 4
+  fid_batch_size: 64     # Inception batch size on the host CPU/GPU
+  fid_device: cpu
+  fid_num_threads: 96    # optional torch CPU thread count for host-side FID
+  fid_label_sampling: equal
+  fid_eval_model: false  # set true to also compute FID for the non-EMA model
 ```
 
-This XLA branch only performs TPU-native validation loss online. FID/gFID remains an offline workflow.
+This XLA branch runs validation loss on TPU inside the training loop. Optional FID
+evaluation is also available at eval checkpoints by sampling on TPU and computing
+Inception features on the host CPU or GPU.
 
 ### Sampling
 
@@ -241,11 +252,63 @@ python src/sample_ddp.py \
 Autoguidance and classifier-free guidance are controlled via the config’s
 `guidance` block.
 
+To compute FID immediately after sampling on the same TPU VM, point `sample_ddp.py`
+to reference statistics:
+
+```bash
+python src/sample_ddp.py \
+  --config <sample_config> \
+  --sample-dir samples \
+  --precision bf16 \
+  --label-sampling equal \
+  --fid-ref /path/to/VIRTUAL_imagenet256_labeled.npz \
+  --fid-device cpu
+```
+
+This still samples on TPU, but the Inception feature extraction for FID runs on
+the host CPU or GPU (`--fid-device auto|cpu|cuda`). You can also set
+`--fid-num-threads` to control CPU parallelism explicitly. Rank 0 writes a
+`<sample_dir>.fid.json` file with the result.
+
 ## Evaluation
 
-### Online validation during training (TPU)
+### Online evaluation during training (TPU + host CPU/GPU)
 
-The `eval` block above runs held-out validation loss inside `src/train.py` and sends the resulting scalars to wandb when `--wandb` is enabled. It does not run FID or other sampling-based quality metrics.
+The `eval` block above runs held-out validation loss inside `src/train.py` and
+sends the resulting scalars to wandb when `--wandb` is enabled. If `fid_ref` is
+set, the same block can also trigger periodic FID evaluation. Sampling still
+runs on TPU; the Inception feature extraction runs on the host CPU or GPU.
+
+### Local FID from generated `.npz`
+
+For custom datasets, first build reference statistics once:
+
+```bash
+python src/build_fid_stats.py \
+  --input /path/to/reference_images \
+  --output /path/to/reference_stats.npz \
+  --device cpu \
+  --num-workers 32 \
+  --num-threads 96
+```
+
+`--input` accepts either an image folder (recursively scanned) or an existing
+`.npy`/`.npz` image archive.
+
+If you already have a generated `.npz`, you can score it directly with:
+
+```bash
+python src/evaluate_fid.py \
+  --samples /path/to/samples.npz \
+  --ref /path/to/VIRTUAL_imagenet256_labeled.npz \
+  --device cpu \
+  --num-threads 96 \
+  --output-json /path/to/samples.fid.json
+```
+
+This path uses `torch-fidelity`'s InceptionV3-compatible feature extractor and
+works on CPU or CUDA. It avoids moving samples to another machine, but it is not
+the ADM TensorFlow evaluator.
 
 ### ADM Suite FID setup (only available on GPU)
 

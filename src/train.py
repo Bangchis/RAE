@@ -15,7 +15,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from glob import glob
 from time import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import torch
@@ -36,10 +36,11 @@ from stage1 import RAE
 from stage2.models import Stage2ModelProtocol
 from stage2.transport import create_transport
 from utils import wandb_utils
+from utils.fid_utils import compute_fid_with_metadata, write_fid_result
 from utils.model_utils import instantiate_from_config  # noqa: E402
 from utils.optim_utils import build_optimizer, build_scheduler
 from utils.train_utils import initialize_cache, set_random_seed, parse_configs
-from utils.sample_utils import manual_sample, make_timesteps  # noqa: E402
+from utils.sample_utils import build_label_sampler, manual_sample, make_timesteps  # noqa: E402
 #################################################################################
 #                             Training Helper Functions                         #
 #################################################################################
@@ -179,6 +180,199 @@ def run_validation_loss(
     return float(total_loss_sum / total_weight), global_batches
 
 
+def build_sampling_components(
+    base_model: Stage2ModelProtocol,
+    labels: torch.Tensor,
+    guidance_scale: float,
+    guidance_method: str,
+    null_label: int,
+    t_min: float,
+    t_max: float,
+    guid_model_forward: Optional[Callable[..., Any]],
+) -> tuple[Callable[..., torch.Tensor], torch.Tensor, Dict[str, Any], bool]:
+    model_forward: Callable[..., torch.Tensor] = base_model.forward
+    labels_for_model = labels
+    model_kwargs: Dict[str, Any] = {}
+    duplicate_latents = False
+
+    if guidance_scale <= 1.0:
+        return model_forward, labels_for_model, model_kwargs, duplicate_latents
+
+    if guidance_method == "autoguidance":
+        if guid_model_forward is None:
+            raise RuntimeError("Guidance model forward is not initialized.")
+        model_forward = base_model.forward_with_autoguidance
+        model_kwargs = {
+            "cfg_scale": guidance_scale,
+            "cfg_interval": (t_min, t_max),
+            "additional_model_forward": guid_model_forward,
+        }
+        return model_forward, labels_for_model, model_kwargs, duplicate_latents
+
+    if guidance_method == "cfg":
+        duplicate_latents = True
+        y_null = torch.full((labels.shape[0],), null_label, device=labels.device, dtype=torch.long)
+        labels_for_model = torch.cat([labels, y_null], dim=0)
+        model_forward = base_model.forward_with_cfg
+        model_kwargs = {
+            "cfg_scale": guidance_scale,
+            "cfg_interval": (t_min, t_max),
+        }
+        return model_forward, labels_for_model, model_kwargs, duplicate_latents
+
+    raise ValueError(f"Unsupported guidance method '{guidance_method}'.")
+
+
+@torch.no_grad()
+def run_fid_evaluation(
+    *,
+    base_model: Stage2ModelProtocol,
+    model_tag: str,
+    rae: RAE,
+    latent_size: tuple[int, ...],
+    num_classes: int,
+    null_label: int,
+    guidance_scale: float,
+    guidance_method: str,
+    t_min: float,
+    t_max: float,
+    guid_model_forward: Optional[Callable[..., Any]],
+    schedule: torch.Tensor,
+    per_proc_batch_size: int,
+    num_fid_samples: int,
+    label_sampling: str,
+    sample_seed: int,
+    precision: str,
+    fid_ref: str,
+    fid_batch_size: int,
+    fid_device: str,
+    fid_num_threads: Optional[int],
+    autocast_kwargs: Dict[str, Any],
+    experiment_dir: str,
+    train_steps: int,
+    device: torch.device,
+    is_master: bool,
+) -> Optional[Dict[str, float]]:
+    if num_fid_samples <= 0:
+        raise ValueError("eval.fid_num_samples must be greater than 0.")
+    if per_proc_batch_size <= 0:
+        raise ValueError("eval.fid_per_proc_batch_size must be greater than 0.")
+
+    rank = xm.get_ordinal()
+    world_size = xm.xrt_world_size()
+    global_batch_size = per_proc_batch_size * world_size
+    total_samples = int(math.ceil(num_fid_samples / global_batch_size) * global_batch_size)
+    samples_needed_this_device = total_samples // world_size
+    if samples_needed_this_device % per_proc_batch_size != 0:
+        raise ValueError("FID per-rank sample count must be divisible by eval.fid_per_proc_batch_size.")
+    iterations = samples_needed_this_device // per_proc_batch_size
+
+    fid_step_dir = os.path.join(experiment_dir, "fid_eval", f"step_{train_steps:07d}")
+    if is_master:
+        os.makedirs(fid_step_dir, exist_ok=True)
+    xm.rendezvous(f"fid_dir_{train_steps}")
+
+    label_sampler = build_label_sampler(
+        label_sampling,
+        num_classes,
+        num_fid_samples,
+        total_samples,
+        samples_needed_this_device,
+        per_proc_batch_size,
+        device,
+        rank,
+        iterations,
+        sample_seed,
+    )
+
+    dtype = torch.bfloat16 if precision == "bf16" else torch.float32
+    local_samples: list[np.ndarray] = []
+    sample_shape: Optional[tuple[int, int, int]] = None
+
+    for step_idx in range(iterations):
+        noise = torch.randn(per_proc_batch_size, *latent_size, device=device, dtype=dtype)
+        labels = label_sampler(step_idx)
+        sample_fn, labels_for_model, model_kwargs, duplicate_latents = build_sampling_components(
+            base_model,
+            labels,
+            guidance_scale,
+            guidance_method,
+            null_label,
+            t_min,
+            t_max,
+            guid_model_forward,
+        )
+        if duplicate_latents:
+            noise = torch.cat([noise, noise], dim=0)
+
+        with autocast(**autocast_kwargs):
+            latents = manual_sample(
+                sample_fn,
+                noise,
+                labels_for_model,
+                schedule,
+                device=device,
+                model_kwargs=model_kwargs,
+            )
+            if duplicate_latents:
+                latents, _ = latents.chunk(2, dim=0)
+            decoded = rae.decode(latents.to(torch.float32)).clamp_(0, 1)
+
+        sample_arr = xm._maybe_convert_to_cpu(decoded.float().mul(255).permute(0, 2, 3, 1)).to(torch.uint8).numpy()
+        sample_shape = tuple(int(dim) for dim in sample_arr.shape[1:])
+        step_offset = step_idx * global_batch_size
+        for local_idx, sample in enumerate(sample_arr):
+            global_index = local_idx * world_size + rank + step_offset
+            if global_index < num_fid_samples:
+                local_samples.append(sample)
+        xm.mark_step()
+
+    if sample_shape is None:
+        raise RuntimeError("FID evaluation did not generate any samples.")
+
+    if local_samples:
+        local_arr = np.stack(local_samples)
+    else:
+        local_arr = np.empty((0, *sample_shape), dtype=np.uint8)
+
+    shard_path = os.path.join(fid_step_dir, f"{model_tag}_rank{rank:02d}.npz")
+    np.savez(shard_path, arr_0=local_arr)
+    xm.rendezvous(f"fid_shards_{model_tag}_{train_steps}")
+
+    result: Optional[Dict[str, float]] = None
+    if is_master:
+        shard_paths = [os.path.join(fid_step_dir, f"{model_tag}_rank{replica:02d}.npz") for replica in range(world_size)]
+        fid_value, actual_num_samples = compute_fid_with_metadata(
+            shard_paths,
+            reference_path=fid_ref,
+            batch_size=fid_batch_size,
+            device=fid_device,
+            num_threads=fid_num_threads,
+        )
+        result_path = write_fid_result(
+            os.path.join(fid_step_dir, f"{model_tag}.fid.json"),
+            fid=fid_value,
+            sample_path=fid_step_dir,
+            reference_path=fid_ref,
+            batch_size=fid_batch_size,
+            device=fid_device,
+            num_samples=actual_num_samples,
+            num_threads=fid_num_threads,
+        )
+        for shard in shard_paths:
+            if os.path.exists(shard):
+                os.remove(shard)
+        result = {
+            "fid": fid_value,
+            "num_samples": float(actual_num_samples),
+        }
+        logger = logging.getLogger(__name__)
+        logger.info(f"Saved {model_tag} FID result to {result_path}")
+
+    xm.rendezvous(f"fid_done_{model_tag}_{train_steps}")
+    return result
+
+
 #################################################################################
 #                                  Training Loop                                #
 #################################################################################
@@ -248,32 +442,72 @@ def main(args: argparse.Namespace) -> None:
         raise ValueError("Global batch size must be divisible by world_size * grad_accum_steps.")
 
     micro_batch_size = global_batch_size // (world_size * grad_accum_steps)
-    eval_enabled = bool(eval_cfg)
+    eval_enabled = False
     eval_every = 0
     eval_model = False
     eval_batch_size = micro_batch_size
     eval_num_workers = num_workers
     eval_max_batches: Optional[int] = None
     eval_data_path: Optional[str] = None
-    if eval_enabled:
+    fid_enabled = False
+    fid_every = 0
+    fid_ref: Optional[str] = None
+    fid_num_samples = 4096
+    fid_per_proc_batch_size = micro_batch_size
+    fid_batch_size = 64
+    fid_device = "auto"
+    fid_num_threads: Optional[int] = None
+    fid_label_sampling = "equal"
+    fid_eval_model = False
+    if eval_cfg:
         eval_data_path = eval_cfg.get("data_path")
-        if not eval_data_path:
-            raise ValueError("eval.data_path must be specified when the eval block is enabled.")
+        if eval_data_path is not None:
+            eval_enabled = True
         eval_every = int(eval_cfg.get("eval_every", 0))
-        if eval_every <= 0:
-            raise ValueError("eval.eval_every must be greater than 0 when evaluation is enabled.")
-        eval_batch_size = int(eval_cfg.get("batch_size", micro_batch_size))
-        if eval_batch_size <= 0:
-            raise ValueError("eval.batch_size must be greater than 0.")
-        eval_num_workers = int(eval_cfg.get("num_workers", num_workers))
-        if eval_num_workers < 0:
-            raise ValueError("eval.num_workers must be >= 0.")
-        raw_max_batches = eval_cfg.get("max_batches")
-        if raw_max_batches is not None:
-            eval_max_batches = int(raw_max_batches)
-            if eval_max_batches <= 0:
-                raise ValueError("eval.max_batches must be greater than 0 when provided.")
-        eval_model = bool(eval_cfg.get("eval_model", False))
+        if eval_enabled:
+            if eval_every <= 0:
+                raise ValueError("eval.eval_every must be greater than 0 when validation-loss evaluation is enabled.")
+            eval_batch_size = int(eval_cfg.get("batch_size", micro_batch_size))
+            if eval_batch_size <= 0:
+                raise ValueError("eval.batch_size must be greater than 0.")
+            eval_num_workers = int(eval_cfg.get("num_workers", num_workers))
+            if eval_num_workers < 0:
+                raise ValueError("eval.num_workers must be >= 0.")
+            raw_max_batches = eval_cfg.get("max_batches")
+            if raw_max_batches is not None:
+                eval_max_batches = int(raw_max_batches)
+                if eval_max_batches <= 0:
+                    raise ValueError("eval.max_batches must be greater than 0 when provided.")
+            eval_model = bool(eval_cfg.get("eval_model", False))
+        elif any(key in eval_cfg for key in ("eval_every", "batch_size", "num_workers", "max_batches", "eval_model")):
+            raise ValueError("eval.data_path must be specified when validation-loss evaluation is configured.")
+        fid_ref = eval_cfg.get("fid_ref")
+        fid_enabled = fid_ref is not None
+        if fid_enabled:
+            fid_every = int(eval_cfg.get("fid_every", eval_every))
+            if fid_every <= 0:
+                raise ValueError("eval.fid_every must be greater than 0 when FID evaluation is enabled.")
+            fid_num_samples = int(eval_cfg.get("fid_num_samples", 4096))
+            if fid_num_samples <= 0:
+                raise ValueError("eval.fid_num_samples must be greater than 0 when FID evaluation is enabled.")
+            fid_per_proc_batch_size = int(eval_cfg.get("fid_per_proc_batch_size", micro_batch_size))
+            if fid_per_proc_batch_size <= 0:
+                raise ValueError("eval.fid_per_proc_batch_size must be greater than 0.")
+            fid_batch_size = int(eval_cfg.get("fid_batch_size", 64))
+            if fid_batch_size <= 0:
+                raise ValueError("eval.fid_batch_size must be greater than 0.")
+            fid_device = str(eval_cfg.get("fid_device", "auto"))
+            if fid_device not in {"auto", "cpu", "cuda"}:
+                raise ValueError("eval.fid_device must be one of ['auto', 'cpu', 'cuda'].")
+            raw_fid_num_threads = eval_cfg.get("fid_num_threads")
+            if raw_fid_num_threads is not None:
+                fid_num_threads = int(raw_fid_num_threads)
+                if fid_num_threads <= 0:
+                    raise ValueError("eval.fid_num_threads must be greater than 0 when provided.")
+            fid_label_sampling = str(eval_cfg.get("fid_label_sampling", "equal"))
+            if fid_label_sampling not in {"equal", "random"}:
+                raise ValueError("eval.fid_label_sampling must be one of ['equal', 'random'].")
+            fid_eval_model = bool(eval_cfg.get("fid_eval_model", False))
     use_bf16 = args.precision == "bf16"
     autocast_dtype = torch.bfloat16 if use_bf16 else torch.float32
     autocast_kwargs = dict(device=device, dtype=autocast_dtype, enabled=use_bf16)
@@ -304,19 +538,20 @@ def main(args: argparse.Namespace) -> None:
     is_master = xm.is_master_ordinal()
     wandb_utils.is_main_process = lambda: xm.is_master_ordinal()
 
+    os.makedirs(args.results_dir, exist_ok=True)
+    experiment_index = len(glob(f"{args.results_dir}/*"))
+    model_target = str(model_config.get("target", "stage2"))
+    model_string_name = model_target.split(".")[-1]
+    precision_suffix = f"-{args.precision}" if args.precision == "bf16" else ""
+    loss_weight_str = loss_weight if loss_weight is not None else "none"
+    experiment_name = (
+        f"{experiment_index:03d}-{model_string_name}-"
+        f"{path_type}-{prediction}-{loss_weight_str}{precision_suffix}-acc{grad_accum_steps}"
+    )
+    experiment_dir = os.path.join(args.results_dir, experiment_name)
+    checkpoint_dir = os.path.join(experiment_dir, "checkpoints")
+
     if is_master:
-        os.makedirs(args.results_dir, exist_ok=True)
-        experiment_index = len(glob(f"{args.results_dir}/*"))
-        model_target = str(model_config.get("target", "stage2"))
-        model_string_name = model_target.split(".")[-1]
-        precision_suffix = f"-{args.precision}" if args.precision == "bf16" else ""
-        loss_weight_str = loss_weight if loss_weight is not None else "none"
-        experiment_name = (
-            f"{experiment_index:03d}-{model_string_name}-"
-            f"{path_type}-{prediction}-{loss_weight_str}{precision_suffix}-acc{grad_accum_steps}"
-        )
-        experiment_dir = os.path.join(args.results_dir, experiment_name)
-        checkpoint_dir = os.path.join(experiment_dir, "checkpoints")
         logger = create_logger(experiment_dir, is_master=True)
         logger.info(f"Experiment directory created at {experiment_dir}")
         if args.wandb:
@@ -330,8 +565,6 @@ def main(args: argparse.Namespace) -> None:
                 run_config=OmegaConf.to_container(full_cfg, resolve=True),
             )
     else:
-        experiment_dir = None
-        checkpoint_dir = None
         logger = create_logger(None, is_master=False)
 
     xm.rendezvous("experiment_setup")
@@ -426,6 +659,20 @@ def main(args: argparse.Namespace) -> None:
         logger.info(
             f"Evaluation dataset contains {len(eval_dataset):,} images ({eval_data_path}), "
             f"eval_every={eval_every}, per-device eval batch={eval_batch_size}, max_batches={eval_max_batches}."
+        )
+        if fid_enabled and fid_ref is not None:
+            logger.info(
+                f"FID evaluation enabled with fid_ref={fid_ref}, fid_every={fid_every}, "
+                f"fid_num_samples={fid_num_samples}, fid_per_proc_batch_size={fid_per_proc_batch_size}, "
+                f"fid_batch_size={fid_batch_size}, fid_device={fid_device}, fid_num_threads={fid_num_threads}, "
+                f"fid_label_sampling={fid_label_sampling}, fid_eval_model={fid_eval_model}."
+            )
+    elif fid_enabled and fid_ref is not None:
+        logger.info(
+            f"FID evaluation enabled with fid_ref={fid_ref}, fid_every={fid_every}, "
+            f"fid_num_samples={fid_num_samples}, fid_per_proc_batch_size={fid_per_proc_batch_size}, "
+            f"fid_batch_size={fid_batch_size}, fid_device={fid_device}, fid_num_threads={fid_num_threads}, "
+            f"fid_label_sampling={fid_label_sampling}, fid_eval_model={fid_eval_model}."
         )
 
     logger.info(
@@ -605,62 +852,161 @@ def main(args: argparse.Namespace) -> None:
                             wandb_utils.log({"checkpoint/last_saved_step": train_steps}, step=train_steps)
                 xm.rendezvous(f"checkpoint_{train_steps}")
 
-            if eval_enabled and eval_loader is not None and eval_index_weights is not None:
-                if train_steps % eval_every == 0 and train_steps > 0:
-                    xm.rendezvous(f"eval_start_{train_steps}")
-                    logger.info("Running validation loss evaluation...")
-                    eval_started_at = time()
+            loss_eval_due = (
+                eval_enabled
+                and eval_loader is not None
+                and eval_index_weights is not None
+                and train_steps % eval_every == 0
+                and train_steps > 0
+            )
+            if loss_eval_due:
+                xm.rendezvous(f"eval_start_{train_steps}")
+                logger.info("Running validation loss evaluation...")
+                eval_started_at = time()
 
-                    ema_loss, eval_batches = run_validation_loss(
-                        ema,
+                ema_loss, eval_batches = run_validation_loss(
+                    ema,
+                    rae,
+                    transport,
+                    eval_loader,
+                    device,
+                    autocast_kwargs,
+                    eval_index_weights,
+                    reduce_prefix="eval_ema",
+                    max_batches=eval_max_batches,
+                )
+                eval_stats: Dict[str, Any] = {
+                    "eval/ema_loss": ema_loss,
+                    "eval/duration_sec": time() - eval_started_at,
+                    "eval/num_batches": eval_batches,
+                }
+
+                if eval_model:
+                    model_was_training = model.training
+                    model.eval()
+                    model_loss, _ = run_validation_loss(
+                        model,
                         rae,
                         transport,
                         eval_loader,
                         device,
                         autocast_kwargs,
                         eval_index_weights,
-                        reduce_prefix="eval_ema",
+                        reduce_prefix="eval_model",
                         max_batches=eval_max_batches,
                     )
-                    eval_stats: Dict[str, Any] = {
-                        "eval/ema_loss": ema_loss,
-                        "eval/duration_sec": time() - eval_started_at,
-                        "eval/num_batches": eval_batches,
-                    }
+                    eval_stats["eval/model_loss"] = model_loss
+                    if model_was_training:
+                        model.train()
 
-                    if eval_model:
-                        model_was_training = model.training
-                        model.eval()
-                        model_loss, _ = run_validation_loss(
-                            model,
-                            rae,
-                            transport,
-                            eval_loader,
-                            device,
-                            autocast_kwargs,
-                            eval_index_weights,
-                            reduce_prefix="eval_model",
-                            max_batches=eval_max_batches,
+                if is_master:
+                    logger.info(
+                        f"(step={train_steps:07d}) "
+                        f"eval/ema_loss={eval_stats['eval/ema_loss']:.4f}, "
+                        f"eval/num_batches={eval_stats['eval/num_batches']}, "
+                        f"eval/duration_sec={eval_stats['eval/duration_sec']:.2f}"
+                        + (
+                            f", eval/model_loss={eval_stats['eval/model_loss']:.4f}"
+                            if "eval/model_loss" in eval_stats
+                            else ""
                         )
-                        eval_stats["eval/model_loss"] = model_loss
-                        if model_was_training:
-                            model.train()
+                    )
+                    if args.wandb:
+                        wandb_utils.log(eval_stats, step=train_steps)
+                xm.rendezvous(f"eval_done_{train_steps}")
 
-                    if is_master:
-                        logger.info(
-                            f"(step={train_steps:07d}) "
-                            f"eval/ema_loss={eval_stats['eval/ema_loss']:.4f}, "
-                            f"eval/num_batches={eval_stats['eval/num_batches']}, "
-                            f"eval/duration_sec={eval_stats['eval/duration_sec']:.2f}"
-                            + (
-                                f", eval/model_loss={eval_stats['eval/model_loss']:.4f}"
-                                if "eval/model_loss" in eval_stats
-                                else ""
-                            )
+            fid_eval_due = fid_enabled and fid_ref is not None and train_steps % fid_every == 0 and train_steps > 0
+            if fid_eval_due:
+                xm.rendezvous(f"fid_eval_start_{train_steps}")
+                logger.info("Running FID evaluation...")
+                fid_started_at = time()
+                fid_stats: Dict[str, Any] = {}
+
+                ema_fid_result = run_fid_evaluation(
+                    base_model=ema,
+                    model_tag="ema",
+                    rae=rae,
+                    latent_size=latent_size,
+                    num_classes=num_classes,
+                    null_label=null_label,
+                    guidance_scale=guidance_scale,
+                    guidance_method=guidance_method,
+                    t_min=t_min,
+                    t_max=t_max,
+                    guid_model_forward=guid_model_forward,
+                    schedule=schedule,
+                    per_proc_batch_size=fid_per_proc_batch_size,
+                    num_fid_samples=fid_num_samples,
+                    label_sampling=fid_label_sampling,
+                    sample_seed=global_seed + train_steps,
+                    precision=args.precision,
+                    fid_ref=fid_ref,
+                    fid_batch_size=fid_batch_size,
+                    fid_device=fid_device,
+                    fid_num_threads=fid_num_threads,
+                    autocast_kwargs=autocast_kwargs,
+                    experiment_dir=experiment_dir,
+                    train_steps=train_steps,
+                    device=device,
+                    is_master=is_master,
+                )
+                if ema_fid_result is not None:
+                    fid_stats["eval/ema_fid"] = ema_fid_result["fid"]
+                    fid_stats["eval/fid_num_samples"] = ema_fid_result["num_samples"]
+
+                if fid_eval_model:
+                    model_was_training = model.training
+                    model.eval()
+                    model_fid_result = run_fid_evaluation(
+                        base_model=model,
+                        model_tag="model",
+                        rae=rae,
+                        latent_size=latent_size,
+                        num_classes=num_classes,
+                        null_label=null_label,
+                        guidance_scale=guidance_scale,
+                        guidance_method=guidance_method,
+                        t_min=t_min,
+                        t_max=t_max,
+                        guid_model_forward=guid_model_forward,
+                        schedule=schedule,
+                        per_proc_batch_size=fid_per_proc_batch_size,
+                        num_fid_samples=fid_num_samples,
+                        label_sampling=fid_label_sampling,
+                        sample_seed=global_seed + train_steps + 17,
+                        precision=args.precision,
+                        fid_ref=fid_ref,
+                        fid_batch_size=fid_batch_size,
+                        fid_device=fid_device,
+                        fid_num_threads=fid_num_threads,
+                        autocast_kwargs=autocast_kwargs,
+                        experiment_dir=experiment_dir,
+                        train_steps=train_steps,
+                        device=device,
+                        is_master=is_master,
+                    )
+                    if model_was_training:
+                        model.train()
+                    if model_fid_result is not None:
+                        fid_stats["eval/model_fid"] = model_fid_result["fid"]
+                        fid_stats.setdefault("eval/fid_num_samples", model_fid_result["num_samples"])
+
+                if is_master:
+                    fid_stats["eval/fid_duration_sec"] = time() - fid_started_at
+                    logger.info(
+                        f"(step={train_steps:07d}) "
+                        f"eval/ema_fid={fid_stats.get('eval/ema_fid', float('nan')):.4f}, "
+                        f"eval/fid_num_samples={int(fid_stats.get('eval/fid_num_samples', 0))}, "
+                        f"eval/fid_duration_sec={fid_stats['eval/fid_duration_sec']:.2f}"
+                        + (
+                            f", eval/model_fid={fid_stats['eval/model_fid']:.4f}"
+                            if "eval/model_fid" in fid_stats
+                            else ""
                         )
-                        if args.wandb:
-                            wandb_utils.log(eval_stats, step=train_steps)
-                    xm.rendezvous(f"eval_done_{train_steps}")
+                    )
+                    if args.wandb:
+                        wandb_utils.log(fid_stats, step=train_steps)
+                xm.rendezvous(f"fid_eval_done_{train_steps}")
 
             if sample_every > 0 and (train_steps % sample_every == 0 or train_steps == 1):
                 logger.info("Generating EMA samples...")
