@@ -34,6 +34,7 @@ def _load_stage1_encoder(args: argparse.Namespace) -> Any:
         seed=args.seed,
         exp_name=args.exp_name,
         enable_eval=False,
+        require_stage2=False,
     )
 
     activate_backend(args.backend_dir)

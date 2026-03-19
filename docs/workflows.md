@@ -366,6 +366,8 @@ python3 src_jax/build_stage1_stats.py \
 
 The output `stat.pt` matches the original repo format (`mean` / `var` tensors),
 so it can be consumed by both `src/` and `src_jax/`.
+These Stage 1-only JAX utilities can run from a YAML that only defines
+`stage_1`; they do not require `stage_2.target`.
 
 ### JAX Folder Reconstruction
 

@@ -139,6 +139,7 @@ def build_backend_config_dict(
     exp_name: str | None = None,
     wandb_project: str | None = None,
     enable_eval: bool = True,
+    require_stage2: bool = True,
 ) -> dict[str, Any]:
     stage1_cfg = cfg_to_dict(repo_cfg.get("stage_1"))
     stage2_cfg = cfg_to_dict(repo_cfg.get("stage_2"))
@@ -154,7 +155,13 @@ def build_backend_config_dict(
     transport_params = dict(transport_cfg.get("params", {}))
     sampler_params = dict(sampler_cfg.get("params", {}))
 
-    network_class = infer_network_class(str(stage2_cfg.get("target", "")))
+    stage2_target = str(stage2_cfg.get("target", "")).strip()
+    if stage2_target:
+        network_class = infer_network_class(stage2_target)
+    elif require_stage2:
+        raise ValueError("stage_2.target is required for this JAX adapter flow.")
+    else:
+        network_class = "stage1_only"
     resolved_image_size = _derive_image_size(stage1_params, misc_cfg, image_size)
     latent_size = misc_cfg.get("latent_size", [stage2_params.get("in_channels", 768), stage2_params.get("input_size", 16), stage2_params.get("input_size", 16)])
     guidance_scale = float(guidance_cfg.get("scale", 1.0))
