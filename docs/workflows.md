@@ -350,6 +350,12 @@ python3 src_jax/stage1_sample.py \
 This is intentionally scoped to inference and checkpoint verification. The
 adversarial Stage 1 training loop has not been ported to JAX in this branch.
 
+For Kaggle `TPU v5e-8`, use
+[../raes-jax-celeba-kaggle-tpuv5e8.ipynb](../raes-jax-celeba-kaggle-tpuv5e8.ipynb).
+It installs `jax[tpu]` and runs the JAX/TPU sanity check in a fresh Python
+process so a just-reinstalled `jax`/`jaxlib` pair does not trip notebook-kernel
+skew.
+
 ## 9. Upload a JAX Run to Hugging Face
 
 Standalone upload:

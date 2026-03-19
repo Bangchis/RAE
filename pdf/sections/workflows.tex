@@ -73,6 +73,13 @@ Lệnh này phù hợp để xác nhận:
   \item preprocessing của encoder có khớp hay không.
 \end{itemize}
 
+\subsubsection{Notebook Kaggle cho TPU v5e-8}
+
+Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
+\texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Notebook này cài \texttt{jax[tpu]}
+và kiểm tra \texttt{jax}/TPU trong một tiến trình Python mới để tránh lỗi khi
+vừa reinstall \texttt{jax}/\texttt{jaxlib} ngay trong notebook.
+
 \subsection{Huấn luyện Stage 2 trên TPU bằng TorchXLA}
 
 \begin{lstlisting}[style=rae]

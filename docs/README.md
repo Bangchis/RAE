@@ -9,6 +9,7 @@ and the lightweight JAX/NNX adapter shipped in `src_jax/`.
 - [Workflows](./workflows.md): practical runbooks for setup, Stage 2 training, sampling, FID, wandb, and Hugging Face upload.
 - [Config Reference](./config-reference.md): YAML schema and which scripts consume each block.
 - [PDF Manual](../pdf/main.pdf): detailed Vietnamese PDF for architecture, workflows, config, and operations.
+- [Kaggle TPU Notebook](../raes-jax-celeba-kaggle-tpuv5e8.ipynb): CelebA notebook for Kaggle `TPU v5e-8` with a fresh-process JAX/TPU sanity check.
 
 ## Recommended Reading Order
 

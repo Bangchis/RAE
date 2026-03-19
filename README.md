@@ -33,6 +33,7 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/workflows.md](docs/workflows.md): practical runbooks for XLA and JAX/NNX training, sampling, and FID
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
+- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with a fresh-process JAX/TPU sanity check
 
 ## Environment
 
@@ -302,6 +303,7 @@ Key behavior:
 - `--set key=value` applies OmegaConf CLI overrides without adding a second config format.
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
+- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` installs `jax[tpu]` and verifies TPU visibility in a fresh Python process, which avoids notebook-kernel skew right after reinstalling `jax` or `jaxlib` inside Kaggle.
 
 Current limitation:
 

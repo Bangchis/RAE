@@ -97,6 +97,9 @@ python3 src_jax/train.py \
   \item FID trên đường JAX và XLA đều dùng reference stats của repo, nhưng
   backend JAX sẽ chuyển \texttt{.npz} sang pickle nội bộ khi cần.
   \item Nếu chỉ cần inference Stage 1 ở JAX, dùng \texttt{src\_jax/stage1\_sample.py}.
+  \item Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; notebook này cài \texttt{jax[tpu]}
+  và kiểm tra \texttt{jax}/TPU bằng tiến trình Python mới để tránh notebook-kernel skew.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.
 \end{itemize}
