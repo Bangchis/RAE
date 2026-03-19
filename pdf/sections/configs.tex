@@ -1,0 +1,124 @@
+\section{Cấu hình và ánh xạ sang JAX}
+
+\subsection{Các block config chính}
+
+Tất cả entrypoint quan trọng đều dựa trên YAML của repo. Các block top-level:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{stage\_1},
+  \item \texttt{stage\_2},
+  \item \texttt{transport},
+  \item \texttt{sampler},
+  \item \texttt{guidance},
+  \item \texttt{misc},
+  \item \texttt{training},
+  \item \texttt{eval}.
+\end{itemize}
+
+\subsection{Ma trận script và block config}
+
+\begin{center}
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.23\linewidth} *{4}{>{\centering\arraybackslash}p{0.11\linewidth}}}
+\toprule
+Block & \texttt{src\_jax/train.py} & \texttt{src\_jax/sample.py} & \texttt{src\_jax/sample\_ddp.py} & \texttt{src\_jax/stage1\_sample.py} \\
+\midrule
+\endhead
+\texttt{stage\_1} & yes & yes & yes & yes \\
+\texttt{stage\_2} & yes & yes & yes & no \\
+\texttt{transport} & yes & yes & yes & no \\
+\texttt{sampler} & yes & yes & yes & no \\
+\texttt{guidance} & yes & yes & yes & no \\
+\texttt{misc} & yes & yes & yes & no \\
+\texttt{training} & yes & no & no & no \\
+\texttt{eval} & yes, một phần & no & no & no \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Block \texttt{stage\_1}}
+
+Adapter JAX không tạo schema mới cho Stage 1. Nó đọc trực tiếp:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{encoder\_config\_path} hoặc \texttt{encoder\_params.dinov2\_path},
+  \item \texttt{pretrained\_decoder\_path},
+  \item \texttt{normalization\_stat\_path},
+  \item \texttt{encoder\_input\_size}.
+\end{itemize}
+
+Các giá trị này được chuyển sang encoder RAE của backend NNX để phục vụ
+reconstruction và decode latent khi sampling Stage 2.
+
+\subsection{Block \texttt{stage\_2}}
+
+Một số key quan trọng:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{target}: chỉ dùng để suy ra backbone NNX tương ứng;
+  \item \texttt{ckpt}: có thể là file PyTorch \texttt{.pt} hoặc thư mục Orbax;
+  \item \texttt{input\_size}, \texttt{patch\_size}, \texttt{in\_channels};
+  \item \texttt{hidden\_size}, \texttt{depth}, \texttt{num\_heads};
+  \item các toggle như \texttt{use\_rope}, \texttt{use\_rmsnorm},
+  \texttt{use\_swiglu}, \texttt{wo\_shift}.
+\end{itemize}
+
+\subsection{Block \texttt{guidance}}
+
+Hai mode chính:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{cfg}: adapter dùng chính model làm conditional và unconditional
+  pass, với nhãn null mặc định bằng \texttt{num\_classes};
+  \item \texttt{autoguidance}: adapter load thêm
+  \texttt{guidance.guidance\_model} làm guide network.
+\end{itemize}
+
+\subsection{Block \texttt{training}}
+
+Một số key được ánh xạ trực tiếp:
+
+\begin{lstlisting}[style=rae]
+training:
+  global_seed: 0
+  epochs: 1400
+  global_batch_size: 1024
+  ema_decay: 0.9995
+  num_workers: 4
+  log_every: 100
+  ckpt_every: 5000
+  sample_every: 10000
+  base_lr: 0.0002
+  final_lr: 0.00002
+  beta: [0.9, 0.95]
+  wd: 0.0
+  schedule_type: linear
+\end{lstlisting}
+
+Lưu ý:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item nếu config chỉ cho \texttt{epochs}, adapter sẽ suy ra
+  \texttt{total\_steps} từ \texttt{num\_train\_samples};
+  \item optimizer mặc định vẫn là AdamW;
+  \item scheduler được chuẩn hóa về các mode đơn giản như
+  \texttt{constant}, \texttt{linear}, \texttt{cosine}.
+\end{itemize}
+
+\subsection{Block \texttt{eval}}
+
+Đường JAX hiện dùng phần FID nhiều hơn phần validation loss. Nếu \texttt{fid\_ref}
+là file \texttt{.npz} của repo cũ, adapter sẽ tự chuyển nó sang định dạng pickle
+mà backend NNX hiểu được.
+
+\subsection{Override từ CLI}
+
+Các entrypoint JAX cho phép override nhanh bằng:
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/train.py \
+  --config <config> \
+  --set training.global_batch_size=256 \
+  --set guidance.scale=1.5
+\end{lstlisting}
+
+Mục tiêu là giữ đúng một schema YAML, nhưng vẫn cho phép chỉnh nhanh như CLI.

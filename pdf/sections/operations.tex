@@ -1,0 +1,115 @@
+\section{Vận hành, artifact và FID}
+
+\subsection{Sampling Stage 2 trên đường JAX}
+
+\subsubsection{Sampling nhanh}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/sample.py \
+  --config <sample_config> \
+  --seed 42 \
+  --class-labels 207,360 \
+  --output sample_jax.png
+\end{lstlisting}
+
+\subsubsection{Sampling phân tán}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/sample_ddp.py \
+  --config <sample_config> \
+  --sample-dir samples_jax \
+  --num-samples 50000 \
+  --per-proc-batch-size 4 \
+  --label-sampling equal \
+  --fid-ref /path/to/reference_stats.npz
+\end{lstlisting}
+
+Artifact đầu ra:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item các file PNG theo index;
+  \item các shard \texttt{.npz} theo rank nếu bật \texttt{--save-npz};
+  \item giá trị FID in ra terminal nếu cung cấp \texttt{--fid-ref}.
+\end{itemize}
+
+\subsection{Build reference statistics cho FID}
+
+\begin{lstlisting}[style=rae]
+python src/build_fid_stats.py \
+  --input /path/to/reference_images \
+  --output /path/to/reference_stats.npz \
+  --device cpu \
+  --batch-size 64 \
+  --num-workers 32 \
+  --num-threads 96
+\end{lstlisting}
+
+Đường JAX vẫn tái sử dụng được file \texttt{reference\_stats.npz} này.
+
+\subsection{Artifact của Stage 2 training}
+
+\subsubsection{Đường XLA}
+
+Một experiment trong \texttt{results/} thường có:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{log.txt},
+  \item \texttt{checkpoints/<step>.pt},
+  \item \texttt{fid\_eval/step\_<step>/...} nếu bật online FID.
+\end{itemize}
+
+\subsubsection{Đường JAX}
+
+Một run trong \texttt{results\_jax/} thường có:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{jax\_adapter\_config.json},
+  \item thư mục checkpoint Orbax do backend quản lý,
+  \item media và scalar trên wandb nếu bật \texttt{--wandb},
+  \item toàn bộ workdir có thể được đẩy lên Hugging Face nếu truyền
+  \texttt{--hf-repo-id}.
+\end{itemize}
+
+\subsection{Đẩy model lên Hugging Face}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/push_hf.py \
+  --path results_jax/<run_name> \
+  --repo-id <hf_user_or_org>/<repo_name>
+\end{lstlisting}
+
+Hoặc gắn thẳng vào lệnh train:
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/train.py \
+  --config <config> \
+  --data-path <train_root> \
+  --hf-repo-id <hf_user_or_org>/<repo_name>
+\end{lstlisting}
+
+\subsection{Các lưu ý vận hành quan trọng}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item Đường JAX cố ý giữ nguyên schema YAML của repo để giảm chi phí bảo trì.
+  \item \texttt{stage\_2.ckpt} trên đường JAX có thể là PyTorch hoặc Orbax, nhưng
+  cách load sẽ khác nhau.
+  \item Online validation loss hiện có parity tốt ở đường XLA hơn đường JAX.
+  \item FID trên đường JAX và XLA đều dùng reference stats của repo, nhưng
+  backend JAX sẽ chuyển \texttt{.npz} sang pickle nội bộ khi cần.
+  \item Nếu chỉ cần inference Stage 1 ở JAX, dùng \texttt{src\_jax/stage1\_sample.py}.
+  \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
+  phần chưa được JAX hóa trong branch này.
+\end{itemize}
+
+\subsection{Checklist thực tế trước khi chạy dài}
+
+\begin{enumerate}[leftmargin=1.8em]
+  \item Xác nhận \texttt{stage\_1} và \texttt{stage\_2} khớp latent shape.
+  \item Xác nhận dữ liệu train và val đúng dạng \texttt{ImageFolder}.
+  \item Build \texttt{fid\_ref} trước nếu muốn FID ổn định.
+  \item Export đủ biến wandb trước khi bật \texttt{--wandb}.
+  \item Nếu muốn upload lên Hugging Face, xác nhận token nằm trong biến môi
+  trường được chỉ định bởi \texttt{--hf-token-env}.
+  \item Với JAX sampling số lượng lớn, chọn \texttt{--per-proc-batch-size} đủ an
+  toàn theo bộ nhớ thiết bị.
+\end{enumerate}

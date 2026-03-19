@@ -1,0 +1,154 @@
+\section{Kiến trúc hệ thống}
+
+\subsection{Bản đồ codebase}
+
+\begin{lstlisting}[style=rae]
+configs/
+  stage1/
+  stage2/
+src/
+  stage1/
+  stage2/
+  utils/
+  train.py
+  sample.py
+  sample_ddp.py
+  stage1_sample.py
+  stage1_sample_ddp.py
+  build_fid_stats.py
+  evaluate_fid.py
+src_jax/
+  vendor.py
+  config_adapter.py
+  stage2_runtime.py
+  stage1_runtime.py
+  hf_utils.py
+  train.py
+  sample.py
+  sample_ddp.py
+  stage1_sample.py
+  push_hf.py
+\end{lstlisting}
+
+\subsection{Stage 1: Representation Autoencoder}
+
+Thành phần gốc của Stage 1 nằm trong \texttt{src/stage1/rae.py}. Lớp
+\texttt{RAE} kết hợp:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item encoder ở \texttt{src/stage1/encoders/},
+  \item decoder ở \texttt{src/stage1/decoders/},
+  \item latent normalization qua \texttt{normalization\_stat\_path},
+  \item latent noising qua \texttt{noise\_tau}.
+\end{itemize}
+
+Hành vi chính:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{encode(x)} resize đầu vào về đúng độ phân giải của encoder,
+  chuẩn hóa theo image processor, chạy encoder, reshape latent về dạng 2D nếu
+  cần, rồi áp normalization;
+  \item \texttt{decode(z)} đảo normalization, đổi latent về dạng sequence nếu
+  cần, rồi giải mã thành ảnh RGB bằng decoder ViT.
+\end{itemize}
+
+Ở đường JAX, \texttt{src\_jax/stage1\_runtime.py} không tự viết lại toàn bộ RAE
+trong repo này. Nó gọi backend NNX, nhưng vẫn dùng đúng các giá trị cấu hình
+trong block \texttt{stage\_1}.
+
+\subsection{Stage 2: DiT trong không gian latent}
+
+Implementation PyTorch/XLA chính nằm trong \texttt{src/stage2/models/DDT.py}.
+Mô hình xuất hiện nhiều nhất trong repo này là \texttt{DiTwDDTHead}.
+
+Các đặc điểm quan trọng:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item đầu vào là latent thay vì pixel;
+  \item embedding thời gian bằng Gaussian Fourier features;
+  \item class conditioning bằng \texttt{LabelEmbedder};
+  \item tùy chọn ROPE, RMSNorm, SwiGLU, qk-norm;
+  \item hỗ trợ classifier-free guidance và autoguidance khi sampling.
+\end{itemize}
+
+Đường JAX ánh xạ \texttt{stage\_2.target} sang backbone tương ứng của backend
+NNX:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{DiTwDDTHead} $\rightarrow$ \texttt{lightning\_ddt},
+  \item \texttt{LightningDiT} $\rightarrow$ \texttt{lightning\_dit},
+  \item các target kiểu DiT khác $\rightarrow$ \texttt{dit}.
+\end{itemize}
+
+\subsection{Transport objective}
+
+Phần này nằm trong \texttt{src/stage2/transport/transport.py}. Đây là lớp trung
+gian giữa latent diffusion model và train loop.
+
+Nhiệm vụ của transport:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item lấy mẫu thời gian \texttt{t};
+  \item xây dựng đường nối giữa noise và dữ liệu thật;
+  \item tính target phù hợp với loại output của model;
+  \item trả về drift function để phục vụ ODE hoặc SDE sampler.
+\end{itemize}
+
+Ở đường JAX, adapter không giữ lại implementation transport gốc này. Nó ánh xạ
+các ý nghĩa tương đương sang interface của backend NNX, chủ yếu là SiT với
+sampling kiểu Euler.
+
+\subsection{Lớp adapter JAX}
+
+\begin{center}
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.28\linewidth} >{\raggedright\arraybackslash}p{0.62\linewidth}}
+\toprule
+File & Vai trò \\
+\midrule
+\endhead
+\texttt{src\_jax/vendor.py} & Bootstrap \texttt{diffuse\_nnx} vào \texttt{\~{}/.cache/rae\_jax/diffuse\_nnx} và pin commit \\
+\texttt{src\_jax/config\_adapter.py} & Chuyển YAML OmegaConf của repo sang config backend NNX \\
+\texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, FID glue, wandb bridge \\
+\texttt{src\_jax/stage1\_runtime.py} & Reconstruction Stage 1 trên đường JAX \\
+\texttt{src\_jax/hf\_utils.py} & Upload file hoặc thư mục lên Hugging Face \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Hai mô hình thực thi}
+
+\subsubsection{TorchXLA}
+
+Các entrypoint distributed trong \texttt{src/} dùng \texttt{xmp.spawn(...)} và
+mỗi TPU core chạy một process riêng. Các primitive quan trọng:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{DistributedSampler},
+  \item \texttt{ParallelLoader},
+  \item \texttt{xm.optimizer\_step(...)},
+  \item \texttt{xm.rendezvous(...)} và \texttt{xm.mesh\_reduce(...)}.
+\end{itemize}
+
+\subsubsection{JAX / NNX}
+
+Đường \texttt{src\_jax/} không tự quản lý toàn bộ graph, checkpoint và sampler ở
+mức thấp. Nó dựa vào backend NNX để:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item tạo model, optimizer, sampler và EMA,
+  \item quản lý checkpoint Orbax,
+  \item chạy sampling và FID trong định dạng tensor NHWC của JAX,
+  \item mở rộng sang nhiều process JAX nếu môi trường đã cấu hình phù hợp.
+\end{itemize}
+
+\subsection{Checkpoint và tương thích trọng số}
+
+Một điểm quan trọng của nhánh JAX là vẫn tận dụng được checkpoint cũ:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item nếu \texttt{stage\_2.ckpt} là file PyTorch \texttt{.pt}, adapter sẽ
+  port state dict sang NNX để inference hoặc khởi tạo train;
+  \item nếu \texttt{stage\_2.ckpt} là thư mục checkpoint Orbax, adapter sẽ
+  restore trực tiếp run JAX trước đó;
+  \item decoder Stage 1 ở đường JAX vẫn dùng được checkpoint decoder PyTorch.
+\end{itemize}

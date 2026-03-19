@@ -19,6 +19,21 @@ TorchXLA/TPU:
 * A TPU implementation of RAE and pretrained weights.
 * Sampling of RAE and DiT<sup>DH</sup> on TPU.
 
+JAX/NNX:
+* A lightweight JAX/NNX compatibility layer under `src_jax/`.
+* Stage 2 train/sample entrypoints that reuse the existing YAML schema.
+* Weights & Biases logging, Hugging Face upload, and optional FID scoring without duplicating the full PyTorch codebase.
+
+## Documentation
+
+Use the docs folder as the detailed guide for this branch:
+
+- [docs/README.md](docs/README.md): documentation index
+- [docs/architecture.md](docs/architecture.md): architecture and code map
+- [docs/workflows.md](docs/workflows.md): practical runbooks for XLA and JAX/NNX training, sampling, and FID
+- [docs/config-reference.md](docs/config-reference.md): YAML schema reference
+- [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
+
 ## Environment
 
 ### Dependency Setup
@@ -35,6 +50,16 @@ TorchXLA/TPU:
    uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
    uv pip install "numpy<2" transformers einops
    ```
+
+2. If you want to use the JAX/NNX adapter in `src_jax/`, also install:
+   ```bash
+   uv pip install "jax[cuda12]==0.5.1" flax==0.10.4 optax==0.2.4 orbax-checkpoint==0.11.16
+   uv pip install ml-collections clu absl-py etils huggingface_hub
+   ```
+
+   Notes:
+   - On TPU, replace `jax[cuda12]` with the TPU wheel flow you already use in your environment.
+   - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
 ## Data & Model Preparation
 
@@ -222,6 +247,65 @@ eval:
 This XLA branch runs validation loss on TPU inside the training loop. Optional FID
 evaluation is also available at eval checkpoints by sampling on TPU and computing
 Inception features on the host CPU or GPU.
+
+### JAX / NNX Compatibility Layer
+
+The `jax` branch also ships a thin adapter in `src_jax/` that keeps the current
+OmegaConf YAML files, but runs Stage 2 through a JAX/NNX backend instead of
+duplicating the entire PyTorch codebase.
+
+Main entrypoints:
+
+```bash
+python3 src_jax/train.py \
+  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --data-path <imagenet_train_root> \
+  --results-dir results_jax \
+  --precision bf16 \
+  --wandb \
+  --set training.global_batch_size=256
+```
+
+```bash
+python3 src_jax/sample.py \
+  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B_AG.yaml \
+  --output sample_jax.png \
+  --class-labels 207,360
+```
+
+```bash
+python3 src_jax/sample_ddp.py \
+  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B.yaml \
+  --sample-dir samples_jax \
+  --num-samples 50000 \
+  --label-sampling equal \
+  --fid-ref /path/to/reference_stats.npz
+```
+
+```bash
+python3 src_jax/stage1_sample.py \
+  --config configs/stage1/pretrained/DINOv2-B_512.yaml \
+  --image assets/pixabay_cat.png \
+  --output recon_jax.png
+```
+
+```bash
+python3 src_jax/push_hf.py \
+  --path results_jax/<run_name> \
+  --repo-id <hf_user_or_org>/<repo_name>
+```
+
+Key behavior:
+
+- `src_jax/` accepts the same top-level YAML blocks: `stage_1`, `stage_2`, `transport`, `sampler`, `guidance`, `misc`, `training`, and `eval`.
+- `stage_2.ckpt` can point to the original PyTorch `.pt` checkpoints for inference, or to a JAX Orbax directory for resumed JAX runs.
+- `--set key=value` applies OmegaConf CLI overrides without adding a second config format.
+- `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
+- `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
+
+Current limitation:
+
+- The JAX path intentionally focuses on Stage 2 training/sampling and Stage 1 reconstruction. A dedicated JAX port of the adversarial Stage 1 decoder training loop is not shipped yet, because porting LPIPS + GAN + discriminator into JAX would make the branch substantially larger and harder to maintain.
 
 ### Sampling
 

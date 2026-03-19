@@ -1,0 +1,191 @@
+\section{Workflow thực chiến}
+
+\subsection{Cài đặt môi trường}
+
+Repo hiện có hai cụm phụ thuộc chính.
+
+\subsubsection{Đường XLA}
+
+\begin{lstlisting}[style=rae]
+conda create -n rae python=3.10 -y
+conda activate rae
+pip install uv
+uv pip install torch~=2.5.0 torch_xla[tpu]~=2.5.0 torchvision==0.20.1 -f https://storage.googleapis.com/libtpu-releases/index.html
+uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
+uv pip install "numpy<2" transformers einops
+\end{lstlisting}
+
+\subsubsection{Phần bổ sung cho JAX / NNX}
+
+\begin{lstlisting}[style=rae]
+uv pip install "jax[cuda12]==0.5.1" flax==0.10.4 optax==0.2.4 orbax-checkpoint==0.11.16
+uv pip install ml-collections clu absl-py etils huggingface_hub
+\end{lstlisting}
+
+Lần chạy JAX đầu tiên sẽ tự bootstrap backend \texttt{diffuse\_nnx} vào thư mục
+\texttt{\~{}/.cache/rae\_jax/diffuse\_nnx}.
+
+\subsection{Chuẩn bị model và dữ liệu}
+
+\subsubsection{Model}
+
+\begin{lstlisting}[style=rae]
+hf download nyu-visionx/RAE-collections --local-dir models
+\end{lstlisting}
+
+\subsubsection{Dữ liệu}
+
+Hầu hết các script dùng dữ liệu dạng \texttt{ImageFolder}. Ví dụ:
+
+\begin{lstlisting}[style=rae]
+dataset_root/
+  class_a/
+    0001.png
+  class_b/
+    0002.png
+\end{lstlisting}
+
+\subsection{Kiểm tra Stage 1 bằng reconstruction}
+
+\subsubsection{Đường XLA / PyTorch}
+
+\begin{lstlisting}[style=rae]
+python src/stage1_sample.py \
+  --config <config> \
+  --image assets/pixabay_cat.png \
+  --output recon.png
+\end{lstlisting}
+
+\subsubsection{Đường JAX}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/stage1_sample.py \
+  --config <config> \
+  --image assets/pixabay_cat.png \
+  --output recon_jax.png
+\end{lstlisting}
+
+Lệnh này phù hợp để xác nhận:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item checkpoint decoder Stage 1 có load được hay không,
+  \item latent shape có đúng hay không,
+  \item preprocessing của encoder có khớp hay không.
+\end{itemize}
+
+\subsection{Huấn luyện Stage 2 trên TPU bằng TorchXLA}
+
+\begin{lstlisting}[style=rae]
+python src/train.py \
+  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --data-path <imagenet_train_split> \
+  --results-dir results \
+  --image-size 256 \
+  --precision bf16
+\end{lstlisting}
+
+Trong mỗi optimizer step, train loop thực hiện:
+
+\begin{enumerate}[leftmargin=1.8em]
+  \item center crop và đưa ảnh thành tensor;
+  \item mã hóa ảnh bằng RAE;
+  \item tính transport loss trong latent space;
+  \item step optimizer và scheduler trên TPU;
+  \item update EMA;
+  \item chạy logging, checkpointing, preview sample, validation và FID theo cadence.
+\end{enumerate}
+
+\subsection{Huấn luyện Stage 2 bằng JAX / NNX}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/train.py \
+  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --data-path <imagenet_train_root> \
+  --results-dir results_jax \
+  --precision bf16 \
+  --wandb
+\end{lstlisting}
+
+Điểm quan trọng:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item vẫn dùng cùng file YAML của repo;
+  \item hỗ trợ \texttt{--set key=value} để override nhanh từ CLI;
+  \item nếu \texttt{stage\_2.ckpt} là file PyTorch \texttt{.pt}, adapter sẽ port
+  trọng số sang NNX để khởi tạo;
+  \item nếu \texttt{stage\_2.ckpt} là thư mục Orbax, adapter sẽ restore run JAX
+  trước đó.
+\end{itemize}
+
+\subsection{Wandb logging}
+
+Biến môi trường khuyến nghị:
+
+\begin{lstlisting}[style=rae]
+export ENTITY=<wandb_entity>
+export PROJECT=<wandb_project>
+export WANDB_KEY=<wandb_api_key>
+\end{lstlisting}
+
+Đường JAX cũng chấp nhận các tên \texttt{WANDB\_ENTITY} và
+\texttt{WANDB\_API\_KEY}. Adapter sẽ bridge các tên legacy ở trên nếu chúng đã
+được export sẵn.
+
+\subsection{FID trong train loop}
+
+Đường XLA hỗ trợ online FID trong \texttt{src/train.py}. Ví dụ:
+
+\begin{lstlisting}[style=rae]
+eval:
+  fid_ref: /path/to/reference_stats.npz
+  fid_every: 25000
+  fid_num_samples: 4096
+  fid_per_proc_batch_size: 4
+  fid_batch_size: 128
+  fid_device: cpu
+  fid_num_threads: 96
+\end{lstlisting}
+
+Đường JAX hiện ánh xạ phần FID quan trọng nhất của block \texttt{eval}, nhưng
+chưa có parity hoàn toàn cho validation loss như đường XLA.
+
+\subsection{Sampling Stage 2}
+
+\subsubsection{JAX một lệnh}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/sample.py \
+  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B_AG.yaml \
+  --class-labels 207,360 \
+  --output sample_jax.png
+\end{lstlisting}
+
+\subsubsection{JAX distributed}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/sample_ddp.py \
+  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B.yaml \
+  --sample-dir samples_jax \
+  --num-samples 50000 \
+  --label-sampling equal \
+  --fid-ref /path/to/reference_stats.npz
+\end{lstlisting}
+
+\subsection{Đẩy artifact lên Hugging Face}
+
+\subsubsection{Lệnh độc lập}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/push_hf.py \
+  --path results_jax/<run_name> \
+  --repo-id <hf_user_or_org>/<repo_name>
+\end{lstlisting}
+
+\subsubsection{Tích hợp ngay trong train}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/train.py \
+  --config <config> \
+  --data-path <train_root> \
+  --hf-repo-id <hf_user_or_org>/<repo_name>
+\end{lstlisting}

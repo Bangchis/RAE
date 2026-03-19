@@ -1,0 +1,75 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T5,T1]{fontenc}
+\usepackage[vietnamese,english]{babel}
+\IfFileExists{newtxtext.sty}{
+  \usepackage{newtxtext}
+  \usepackage{newtxmath}
+}{
+  \usepackage{mathptmx}
+}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={Tài liệu chi tiết dự án RAE XLA và JAX},
+  pdfauthor={OpenAI Codex}
+}
+
+\setstretch{1.12}
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{RAE XLA/JAX}
+\fancyhead[R]{Tai lieu ky thuat}
+\fancyfoot[C]{\thepage}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.6em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection.}{0.6em}{}
+
+\lstdefinestyle{rae}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  keywordstyle=\color{blue!50!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{red!40!black}
+}
+
+\title{\textbf{Tài liệu chi tiết cho dự án RAE XLA và JAX}}
+\author{Nhánh TorchXLA/TPU và lớp tương thích JAX/NNX của dự án Representation Autoencoders}
+\date{\today}
+
+\begin{document}
+
+\selectlanguage{vietnamese}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\input{sections/overview}
+\input{sections/architecture}
+\input{sections/workflows}
+\input{sections/configs}
+\input{sections/operations}
+
+\end{document}

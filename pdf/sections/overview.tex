@@ -1,0 +1,89 @@
+\section{Tổng quan dự án}
+
+\subsection{Mục tiêu}
+
+Dự án này triển khai pipeline tạo ảnh hai giai đoạn dựa trên
+\textit{Representation Autoencoders} (RAE). Ở thời điểm hiện tại, repo có hai
+đường chạy chính:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{src/}: nhánh TorchXLA, tối ưu cho TPU với train và sampling
+  Stage 2, reconstruction Stage 1, và FID phía host;
+  \item \texttt{src\_jax/}: lớp tương thích JAX/NNX, giữ nguyên schema YAML của
+  repo nhưng ánh xạ sang backend NNX để tránh nhân đôi toàn bộ codebase.
+\end{itemize}
+
+\subsection{Hai giai đoạn chính}
+
+\subsubsection{Stage 1}
+
+Stage 1 dùng một encoder biểu diễn đã được pretrain và đóng băng, kết hợp với
+một decoder ViT để tái tạo ảnh. Đầu ra của Stage 1 là latent giàu ngữ nghĩa hơn
+latent VAE thông thường.
+
+\subsubsection{Stage 2}
+
+Stage 2 học mô hình diffusion transformer trong không gian latent của Stage 1.
+Thay vì học trực tiếp trên pixel, mô hình học quy luật biến đổi của latent, sau
+đó giải mã latent sinh được thành ảnh RGB qua decoder của RAE.
+
+\subsection{Phạm vi của branch hiện tại}
+
+Nhánh hiện tại không chỉ có đường TorchXLA mà còn có adapter JAX mỏng. Phần được
+hỗ trợ thực dụng nhất là:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item huấn luyện Stage 2 bằng \texttt{src/train.py} trên TPU;
+  \item huấn luyện Stage 2 bằng \texttt{src\_jax/train.py} trên JAX/NNX;
+  \item sampling Stage 2 bằng cả \texttt{src/} và \texttt{src\_jax/};
+  \item reconstruction Stage 1 để kiểm tra encoder-decoder trên cả hai đường;
+  \item logging qua wandb;
+  \item upload artifact hoặc workdir lên Hugging Face;
+  \item FID offline, và online FID trong train loop ở đường XLA.
+\end{itemize}
+
+\subsection{Giới hạn hiện tại}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{src/} vẫn không có entrypoint riêng cho huấn luyện Stage 1 trên
+  XLA;
+  \item \texttt{src\_jax/} cố ý chưa port toàn bộ vòng huấn luyện Stage 1 kiểu
+  GAN + LPIPS + discriminator, vì phần đó sẽ làm codebase lớn và khó bảo trì
+  hơn đáng kể.
+\end{itemize}
+
+\subsection{Dòng dữ liệu cấp cao}
+
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.24\linewidth} >{\raggedright\arraybackslash}p{0.64\linewidth}}
+\toprule
+Bước & Mô tả \\
+\midrule
+1 & Ảnh đầu vào được đưa qua encoder của Stage 1 \\
+2 & Encoder sinh latent tensor có kích thước như \texttt{misc.latent\_size} \\
+3 & Stage 2 học transport objective trên latent đó \\
+4 & Khi sampling, latent được sinh bởi Stage 2 \\
+5 & Decoder của Stage 1 giải mã latent thành ảnh RGB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Ý tưởng của đường JAX}
+
+Đường JAX không tạo thêm một schema config mới. Thay vào đó:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item vẫn đọc các block \texttt{stage\_1}, \texttt{stage\_2},
+  \texttt{transport}, \texttt{sampler}, \texttt{guidance}, \texttt{misc},
+  \texttt{training}, \texttt{eval};
+  \item dùng \texttt{src\_jax/config\_adapter.py} để chuyển YAML hiện có sang
+  config mà backend NNX hiểu được;
+  \item bootstrap backend \texttt{diffuse\_nnx} theo commit cố định để branch
+  gọn hơn, không phải chép toàn bộ framework vào repo.
+\end{itemize}
+
+\subsection{Tài liệu trong repo}
+
+Ngoài PDF này, repo còn có bộ tài liệu markdown trong \texttt{docs/}. Phần
+markdown thiên về runbook ngắn và tra cứu nhanh; PDF này gom lại kiến trúc,
+workflow, cấu hình và vận hành cho cả đường XLA lẫn JAX.
