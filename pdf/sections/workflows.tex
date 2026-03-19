@@ -147,6 +147,11 @@ python3 src_jax/train.py \
   --wandb
 \end{lstlisting}
 
+Trên Kaggle TPU, nên thêm \texttt{--set training.num\_workers=0} để PyTorch
+không \texttt{fork()} DataLoader worker sau khi JAX đã khởi tạo runtime đa
+luồng. Adapter cũng tự tắt backend TensorBoard summary writer trên Kaggle và
+giữ metric ở stdout cùng wandb.
+
 Điểm quan trọng:
 
 \begin{itemize}[leftmargin=1.5em]

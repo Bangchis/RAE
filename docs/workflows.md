@@ -170,6 +170,11 @@ python3 src_jax/train.py \
   --wandb
 ```
 
+On Kaggle TPU, prefer adding `--set training.num_workers=0` so PyTorch does not
+`fork()` DataLoader workers after JAX has already initialized multithreaded
+runtime state. The adapter also disables the backend TensorBoard summary writer
+on Kaggle and keeps metric logging on stdout plus wandb.
+
 Useful additions:
 
 - `--set training.global_batch_size=256`: override YAML values from the CLI

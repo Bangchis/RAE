@@ -42,6 +42,35 @@ def _disable_backend_wandb(wandb_utils: Any) -> None:
     wandb_utils.log_line_plot = _noop
 
 
+def _running_on_kaggle() -> bool:
+    return "KAGGLE_URL_BASE" in os.environ or "KAGGLE_KERNEL_RUN_TYPE" in os.environ
+
+
+def _patch_backend_metric_writer_for_kaggle(trainer: Any) -> Any | None:
+    if not _running_on_kaggle():
+        return None
+
+    original_create_default_writer = trainer.metric_writers.create_default_writer
+
+    def patched_create_default_writer(
+        logdir: str | os.PathLike[str] | None = None,
+        *,
+        just_logging: bool = False,
+        asynchronous: bool = True,
+        collection: str | None = None,
+    ):
+        del logdir, just_logging, asynchronous
+        return original_create_default_writer(
+            logdir=None,
+            just_logging=True,
+            asynchronous=False,
+            collection=collection,
+        )
+
+    trainer.metric_writers.create_default_writer = patched_create_default_writer
+    return original_create_default_writer
+
+
 def _maybe_raise_backend_dependency_hint(exc: ImportError) -> None:
     message = str(exc)
     if (
@@ -410,9 +439,13 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
 
         init_utils.build_models = patched_build_models
 
+    original_create_default_writer = _patch_backend_metric_writer_for_kaggle(trainer)
+
     try:
         trainer.train_and_evaluate(backend_cfg, str(workdir))
     finally:
+        if original_create_default_writer is not None:
+            trainer.metric_writers.create_default_writer = original_create_default_writer
         init_utils.build_models = original_build_models
 
     if args.hf_repo_id:
