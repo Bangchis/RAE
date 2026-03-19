@@ -50,7 +50,7 @@ Use the docs folder as the detailed guide for this branch:
    
    # Install other dependencies
    uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
-   uv pip install "numpy<2" transformers einops
+   uv pip install "numpy<2" "transformers==4.42.3" einops
    ```
 
 2. If you want to use the JAX/NNX adapter in `src_jax/`, also install:
@@ -62,6 +62,7 @@ Use the docs folder as the detailed guide for this branch:
    Notes:
    - On TPU, replace `jax[cuda12]` with the TPU wheel flow you already use in your environment.
    - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
+   - `diffuse_nnx` currently expects `transformers==4.42.3` because newer releases may omit `FlaxDinov2Model`.
    - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
 ## Data & Model Preparation

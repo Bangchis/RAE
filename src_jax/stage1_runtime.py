@@ -11,11 +11,11 @@ import torch
 
 try:
     from .config_adapter import build_backend_config_dict, load_repo_config
-    from .stage2_runtime import _to_config_dict
+    from .stage2_runtime import _maybe_raise_backend_dependency_hint, _to_config_dict
     from .vendor import activate_backend
 except ImportError:
     from config_adapter import build_backend_config_dict, load_repo_config
-    from stage2_runtime import _to_config_dict
+    from stage2_runtime import _maybe_raise_backend_dependency_hint, _to_config_dict
     from vendor import activate_backend
 
 
@@ -39,8 +39,12 @@ def _load_stage1_encoder(args: argparse.Namespace) -> Any:
 
     activate_backend(args.backend_dir)
 
-    from utils import initialize as init_utils
-    from utils import wandb_utils as backend_wandb
+    try:
+        from utils import initialize as init_utils
+        from utils import wandb_utils as backend_wandb
+    except ImportError as exc:
+        _maybe_raise_backend_dependency_hint(exc)
+        raise
 
     backend_wandb.initialize = lambda *_args, **_kwargs: None
     backend_cfg = _to_config_dict(backend_cfg_dict)

@@ -17,7 +17,7 @@ conda activate rae
 pip install uv
 uv pip install torch~=2.5.0 torch_xla[tpu]~=2.5.0 torchvision==0.20.1 -f https://storage.googleapis.com/libtpu-releases/index.html
 uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
-uv pip install "numpy<2" transformers einops
+uv pip install "numpy<2" "transformers==4.42.3" einops
 ```
 
 JAX / NNX additions for `src_jax/`:
@@ -30,6 +30,8 @@ uv pip install ml-collections clu absl-py etils huggingface_hub
 The first JAX run automatically bootstraps `diffuse_nnx` into
 `~/.cache/rae_jax/diffuse_nnx` and pins it to commit
 `023afd23c7b62a8cdb00e840b36a4ab8fc970bba`.
+Pin `transformers==4.42.3` for this path because the backend still imports
+`FlaxDinov2Model`.
 
 ## 2. Prepare Models and Data
 

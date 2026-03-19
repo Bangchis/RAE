@@ -12,7 +12,7 @@ conda activate rae
 pip install uv
 uv pip install torch~=2.5.0 torch_xla[tpu]~=2.5.0 torchvision==0.20.1 -f https://storage.googleapis.com/libtpu-releases/index.html
 uv pip install timm==0.9.16 accelerate==0.23.0 torchdiffeq==0.2.5 wandb scipy torch-fidelity
-uv pip install "numpy<2" transformers einops
+uv pip install "numpy<2" "transformers==4.42.3" einops
 \end{lstlisting}
 
 \subsubsection{Phần bổ sung cho JAX / NNX}
@@ -24,6 +24,8 @@ uv pip install ml-collections clu absl-py etils huggingface_hub
 
 Lần chạy JAX đầu tiên sẽ tự bootstrap backend \texttt{diffuse\_nnx} vào thư mục
 \texttt{\~{}/.cache/rae\_jax/diffuse\_nnx}.
+Nên ghim \texttt{transformers==4.42.3} cho đường này vì backend vẫn import
+\texttt{FlaxDinov2Model}.
 
 \subsection{Chuẩn bị model và dữ liệu}
 

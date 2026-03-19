@@ -42,6 +42,16 @@ def _disable_backend_wandb(wandb_utils: Any) -> None:
     wandb_utils.log_line_plot = _noop
 
 
+def _maybe_raise_backend_dependency_hint(exc: ImportError) -> None:
+    message = str(exc)
+    if "FlaxDinov2Model" in message and "transformers" in message:
+        raise ImportError(
+            "The diffuse_nnx backend expects transformers==4.42.3 because it imports "
+            "FlaxDinov2Model. Reinstall that version in the active environment, for "
+            "example: uv pip install --reinstall \"transformers==4.42.3\"."
+        ) from exc
+
+
 def _to_config_dict(payload: dict[str, Any]) -> Any:
     from ml_collections import ConfigDict
 
@@ -164,10 +174,15 @@ def _load_models_for_inference(
     import jax.numpy as jnp
     import torch
     from flax import nnx
-    from utils import checkpoint as ckpt_utils
-    from utils import initialize as init_utils
-    from networks.transformers import port_torch_to_nnx as port_module
-    from utils import wandb_utils as backend_wandb
+
+    try:
+        from utils import checkpoint as ckpt_utils
+        from utils import initialize as init_utils
+        from networks.transformers import port_torch_to_nnx as port_module
+        from utils import wandb_utils as backend_wandb
+    except ImportError as exc:
+        _maybe_raise_backend_dependency_hint(exc)
+        raise
 
     if getattr(args, "wandb", False):
         _bridge_legacy_wandb_env(getattr(args, "wandb_entity", None), getattr(args, "wandb_project", None))
@@ -348,10 +363,15 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
 
     import torch
     from flax import nnx
-    from networks.transformers import port_torch_to_nnx as port_module
-    from trainers import dit_imagenet as trainer
-    from utils import initialize as init_utils
-    from utils import wandb_utils as backend_wandb
+
+    try:
+        from networks.transformers import port_torch_to_nnx as port_module
+        from trainers import dit_imagenet as trainer
+        from utils import initialize as init_utils
+        from utils import wandb_utils as backend_wandb
+    except ImportError as exc:
+        _maybe_raise_backend_dependency_hint(exc)
+        raise
 
     if args.wandb:
         _bridge_legacy_wandb_env(args.wandb_entity, args.wandb_project)
