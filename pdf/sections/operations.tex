@@ -100,13 +100,14 @@ python3 src_jax/train.py \
   \item Nếu cần stat Stage 1 hoặc reconstruction cả thư mục ở JAX, dùng
   \texttt{src\_jax/build\_stage1\_stats.py} và \texttt{src\_jax/reconstruct\_folder.py}.
   \item Nếu chạy trên Kaggle với CelebA, bắt đầu từ notebook
-  \texttt{raes-jax-celeba-kaggle.ipynb} để giữ đúng flow clone repo, cài
-  \texttt{uv}, chuẩn hóa dữ liệu, build stat và launch train.
+  \texttt{raes-jax-celeba-kaggle.ipynb} để giữ đúng flow clone repo, tạo
+  \texttt{.venv} riêng bằng \texttt{uv}, rồi chạy các bước phụ thuộc package qua
+  \texttt{uv run}.
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
   \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; bản này chuyển FID và build
-  reference stats sang host CPU thay vì \texttt{cuda}, đồng thời kiểm tra
-  \texttt{jax}/TPU bằng tiến trình Python mới để tránh lỗi circular import sau
-  khi reinstall package ngay trong notebook.
+  reference stats sang host CPU thay vì \texttt{cuda}, đồng thời cũng giữ các
+  bước JAX trong \texttt{.venv} riêng qua \texttt{uv run} và kiểm tra
+  \texttt{jax}/TPU bằng tiến trình Python mới.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.
 \end{itemize}

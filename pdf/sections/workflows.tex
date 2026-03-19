@@ -227,7 +227,8 @@ Kaggle:
 
 \begin{itemize}[leftmargin=1.5em]
   \item clone repo và checkout branch \texttt{jax};
-  \item cài môi trường bằng \texttt{uv};
+  \item tạo \texttt{.venv} riêng bằng \texttt{uv};
+  \item chạy các bước phụ thuộc package qua \texttt{uv run};
   \item chuyển CelebA thành \texttt{ImageFolder} \texttt{256x256};
   \item tạo bootstrap identity stat, build latent stat cho Stage 1;
   \item export reconstruction validation set, build \texttt{fid\_ref};
@@ -236,7 +237,7 @@ Kaggle:
 
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Bản này đổi sang đường cài
-\texttt{jax[tpu]}, chạy bước xác nhận TPU trong một tiến trình Python mới để
-tránh lỗi circular import khi notebook vừa reinstall \texttt{jax}/\texttt{jaxlib},
+\texttt{jax[tpu]}, giữ các bước phụ thuộc package trong \texttt{.venv} riêng
+qua \texttt{uv run}, chạy bước xác nhận TPU trong một tiến trình Python mới,
 giữ Stage 1 và Stage 2 ở TPU, còn FID và thống kê tham chiếu sẽ chạy trên host
 CPU nhiều luồng.

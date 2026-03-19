@@ -386,7 +386,8 @@ Use [../raes-jax-celeba-kaggle.ipynb](../raes-jax-celeba-kaggle.ipynb) when you
 want the standard Kaggle-style workflow end to end:
 
 - clone the repo and checkout `jax`
-- install dependencies with `uv`
+- create a dedicated `.venv` with `uv`
+- run package-backed data/stat/reconstruction/train steps through `uv run`
 - convert CelebA into a real `256x256` `ImageFolder`
 - create the bootstrap identity stats file
 - compute Stage 1 latent stats for CelebA
@@ -395,10 +396,10 @@ want the standard Kaggle-style workflow end to end:
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celeba-kaggle-tpuv5e8.ipynb](../raes-jax-celeba-kaggle-tpuv5e8.ipynb).
-That copy switches installation to `jax[tpu]`, runs the TPU device check in a
-fresh Python process so a just-reinstalled `jax`/`jaxlib` pair does not trip
-over notebook-kernel skew, keeps Stage 1 and Stage 2 on TPU, and moves
-FID/stat-heavy work to the host CPU side with `96` threads.
+That copy switches installation to `jax[tpu]`, keeps the package-backed steps
+inside a dedicated `uv` virtualenv via `uv run`, runs the TPU device check in a
+fresh Python process, keeps Stage 1 and Stage 2 on TPU, and moves FID/stat-heavy
+work to the host CPU side with `96` threads.
 
 ## 9. Upload a JAX Run to Hugging Face
 
