@@ -44,11 +44,16 @@ def _disable_backend_wandb(wandb_utils: Any) -> None:
 
 def _maybe_raise_backend_dependency_hint(exc: ImportError) -> None:
     message = str(exc)
-    if "FlaxDinov2Model" in message and "transformers" in message:
+    if (
+        ("FlaxDinov2Model" in message and "transformers" in message)
+        or "Dinov2WithRegistersModel" in message
+        or "dinov2_with_registers" in message
+    ):
         raise ImportError(
-            "The diffuse_nnx backend expects transformers==4.42.3 because it imports "
-            "FlaxDinov2Model. Reinstall that version in the active environment, for "
-            "example: uv pip install --reinstall \"transformers==4.42.3\"."
+            "The patched diffuse_nnx backend expects transformers==4.57.1 so it can import "
+            "the Dinov2 Flax and Dinov2-with-registers modules from their subpackages. "
+            "Reinstall that version in the active environment, for example: "
+            "uv pip install --reinstall \"transformers==4.57.1\"."
         ) from exc
 
 

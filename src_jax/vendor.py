@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 
@@ -27,6 +28,38 @@ def _git_head(path: Path) -> str | None:
     return output.strip()
 
 
+def _patch_backend_file(path: Path, old: str, new: str) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Backend compatibility patch target not found: {path}")
+    content = path.read_text(encoding="utf-8")
+    if new in content:
+        return
+    if old not in content:
+        raise RuntimeError(f"Unexpected backend source layout while patching {path}")
+    path.write_text(content.replace(old, new, 1), encoding="utf-8")
+
+
+def _apply_backend_compat_patches(backend_dir: Path) -> None:
+    dino_path = backend_dir / "networks" / "encoders" / "dino.py"
+    _patch_backend_file(
+        dino_path,
+        "from transformers import FlaxDinov2Model, AutoImageProcessor\n",
+        textwrap.dedent(
+            """\
+            from transformers import AutoImageProcessor
+            from transformers.models.dinov2.modeling_flax_dinov2 import FlaxDinov2Model
+            """
+        ),
+    )
+
+    dino_w_register_path = backend_dir / "networks" / "encoders" / "dino_w_register.py"
+    _patch_backend_file(
+        dino_w_register_path,
+        "from transformers import Dinov2WithRegistersModel\n",
+        "from transformers.models.dinov2_with_registers import Dinov2WithRegistersModel\n",
+    )
+
+
 def resolve_backend_dir(explicit_dir: str | None = None) -> Path:
     raw = explicit_dir or os.environ.get(BACKEND_ENV_VAR)
     if raw:
@@ -45,6 +78,8 @@ def ensure_backend(explicit_dir: str | None = None) -> Path:
     if current_head != BACKEND_COMMIT:
         _run(["git", "-C", str(backend_dir), "fetch", "--depth", "1", "origin", BACKEND_COMMIT])
         _run(["git", "-C", str(backend_dir), "checkout", BACKEND_COMMIT])
+
+    _apply_backend_compat_patches(backend_dir)
 
     return backend_dir
 
