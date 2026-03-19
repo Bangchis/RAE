@@ -73,12 +73,35 @@ Lệnh này phù hợp để xác nhận:
   \item preprocessing của encoder có khớp hay không.
 \end{itemize}
 
-\subsubsection{Notebook Kaggle cho TPU v5e-8}
+\subsubsection{Tính latent stat cho Stage 1 trên đường JAX}
 
-Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
-\texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Notebook này cài \texttt{jax[tpu]}
-và kiểm tra \texttt{jax}/TPU trong một tiến trình Python mới để tránh lỗi khi
-vừa reinstall \texttt{jax}/\texttt{jaxlib} ngay trong notebook.
+Với dataset mới như CelebA, nên tạo một file bootstrap identity stat trước
+(\texttt{mean = 0}, \texttt{var = 1}), rồi chạy:
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/build_stage1_stats.py \
+  --config <stage1_config> \
+  --input <train_imagefolder> \
+  --output <stage1_stat.pt> \
+  --batch-size 16 \
+  --set stage_1.params.normalization_stat_path=<bootstrap_identity_stat.pt>
+\end{lstlisting}
+
+File \texttt{stage1\_stat.pt} tạo ra vẫn cùng định dạng với repo gốc, nên dùng
+lại được cho cả đường \texttt{src/} lẫn \texttt{src\_jax/}.
+
+\subsubsection{Reconstruction cả thư mục trên đường JAX}
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/reconstruct_folder.py \
+  --config <stage1_config> \
+  --input <val_imagefolder> \
+  --output-dir recon_jax_dir \
+  --batch-size 8
+\end{lstlisting}
+
+Lệnh này hữu ích khi muốn export reconstruction set trước khi build FID reference
+hoặc khi cần so sánh decoder Stage 1 giữa các checkpoint.
 
 \subsection{Huấn luyện Stage 2 trên TPU bằng TorchXLA}
 
@@ -196,3 +219,24 @@ python3 src_jax/train.py \
   --data-path <train_root> \
   --hf-repo-id <hf_user_or_org>/<repo_name>
 \end{lstlisting}
+
+\subsection{Notebook Kaggle cho CelebA}
+
+Repo hiện có notebook \texttt{raes-jax-celeba-kaggle.ipynb} để bám đúng flow
+Kaggle:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item clone repo và checkout branch \texttt{jax};
+  \item cài môi trường bằng \texttt{uv};
+  \item chuyển CelebA thành \texttt{ImageFolder} \texttt{256x256};
+  \item tạo bootstrap identity stat, build latent stat cho Stage 1;
+  \item export reconstruction validation set, build \texttt{fid\_ref};
+  \item ghi sẵn config CelebA cho \texttt{src\_jax/train.py}.
+\end{itemize}
+
+Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
+\texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Bản này đổi sang đường cài
+\texttt{jax[tpu]}, chạy bước xác nhận TPU trong một tiến trình Python mới để
+tránh lỗi circular import khi notebook vừa reinstall \texttt{jax}/\texttt{jaxlib},
+giữ Stage 1 và Stage 2 ở TPU, còn FID và thống kê tham chiếu sẽ chạy trên host
+CPU nhiều luồng.

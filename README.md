@@ -33,7 +33,8 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/workflows.md](docs/workflows.md): practical runbooks for XLA and JAX/NNX training, sampling, and FID
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
-- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with a fresh-process JAX/TPU sanity check
+- [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow
+- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with host-side CPU FID and a fresh-process TPU sanity check
 
 ## Environment
 
@@ -291,6 +292,22 @@ python3 src_jax/stage1_sample.py \
 ```
 
 ```bash
+python3 src_jax/build_stage1_stats.py \
+  --config configs/stage1/pretrained/DINOv2-B.yaml \
+  --input /path/to/train_imagefolder \
+  --output /path/to/stage1_stat.pt \
+  --set stage_1.params.normalization_stat_path=/path/to/bootstrap_identity_stat.pt
+```
+
+```bash
+python3 src_jax/reconstruct_folder.py \
+  --config configs/stage1/pretrained/DINOv2-B.yaml \
+  --input /path/to/val_imagefolder \
+  --output-dir recon_jax_dir \
+  --batch-size 8
+```
+
+```bash
 python3 src_jax/push_hf.py \
   --path results_jax/<run_name> \
   --repo-id <hf_user_or_org>/<repo_name>
@@ -301,9 +318,12 @@ Key behavior:
 - `src_jax/` accepts the same top-level YAML blocks: `stage_1`, `stage_2`, `transport`, `sampler`, `guidance`, `misc`, `training`, and `eval`.
 - `stage_2.ckpt` can point to the original PyTorch `.pt` checkpoints for inference, or to a JAX Orbax directory for resumed JAX runs.
 - `--set key=value` applies OmegaConf CLI overrides without adding a second config format.
+- `src_jax/build_stage1_stats.py` writes a PyTorch-compatible `stat.pt` file, so the same Stage 1 normalization stats can be reused by both the original repo code and the JAX adapter.
+- for dataset-specific Stage 1 stats, start from a bootstrap identity stats file (`mean=0`, `var=1`) and override `stage_1.params.normalization_stat_path` during the stats pass.
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
-- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` installs `jax[tpu]` and verifies TPU visibility in a fresh Python process, which avoids notebook-kernel skew right after reinstalling `jax` or `jaxlib` inside Kaggle.
+- `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA.
+- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, verifies TPU visibility in a fresh Python process to avoid notebook-kernel skew after reinstalling JAX, and moves FID/stat-heavy host work onto the `96 vCPU` side.
 
 Current limitation:
 

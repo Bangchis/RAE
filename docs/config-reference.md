@@ -77,6 +77,19 @@ Key fields:
 - `params.reshape_to_2d`: whether latent tokens become `(C, H, W)`
 - `params.normalization_stat_path`: optional latent mean/variance stats
 
+On the JAX path, dataset-specific stats are typically built with:
+
+```bash
+python3 src_jax/build_stage1_stats.py \
+  --config <stage1_config> \
+  --input <train_imagefolder> \
+  --output <stage1_stat.pt> \
+  --set stage_1.params.normalization_stat_path=<bootstrap_identity_stat.pt>
+```
+
+The bootstrap identity stats file can contain `mean=0` and `var=1`, which keeps
+the first stats pass unnormalized while still satisfying the backend RAE loader.
+
 ## `stage_2`
 
 Typical shape:

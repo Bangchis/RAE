@@ -97,9 +97,16 @@ python3 src_jax/train.py \
   \item FID trên đường JAX và XLA đều dùng reference stats của repo, nhưng
   backend JAX sẽ chuyển \texttt{.npz} sang pickle nội bộ khi cần.
   \item Nếu chỉ cần inference Stage 1 ở JAX, dùng \texttt{src\_jax/stage1\_sample.py}.
-  \item Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; notebook này cài \texttt{jax[tpu]}
-  và kiểm tra \texttt{jax}/TPU bằng tiến trình Python mới để tránh notebook-kernel skew.
+  \item Nếu cần stat Stage 1 hoặc reconstruction cả thư mục ở JAX, dùng
+  \texttt{src\_jax/build\_stage1\_stats.py} và \texttt{src\_jax/reconstruct\_folder.py}.
+  \item Nếu chạy trên Kaggle với CelebA, bắt đầu từ notebook
+  \texttt{raes-jax-celeba-kaggle.ipynb} để giữ đúng flow clone repo, cài
+  \texttt{uv}, chuẩn hóa dữ liệu, build stat và launch train.
+  \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; bản này chuyển FID và build
+  reference stats sang host CPU thay vì \texttt{cuda}, đồng thời kiểm tra
+  \texttt{jax}/TPU bằng tiến trình Python mới để tránh lỗi circular import sau
+  khi reinstall package ngay trong notebook.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.
 \end{itemize}
@@ -109,6 +116,8 @@ python3 src_jax/train.py \
 \begin{enumerate}[leftmargin=1.8em]
   \item Xác nhận \texttt{stage\_1} và \texttt{stage\_2} khớp latent shape.
   \item Xác nhận dữ liệu train và val đúng dạng \texttt{ImageFolder}.
+  \item Với dataset mới, build lại \texttt{stage1\_stat.pt} thay vì tái dùng stat
+  của ImageNet nếu muốn latent normalization khớp dữ liệu hơn.
   \item Build \texttt{fid\_ref} trước nếu muốn FID ổn định.
   \item Export đủ biến wandb trước khi bật \texttt{--wandb}.
   \item Nếu muốn upload lên Hugging Face, xác nhận token nằm trong biến môi

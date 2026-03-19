@@ -1,6 +1,12 @@
 __pycache__
 wandb
 
+.env
+*.env
+*.zip*
+.vscode/
+AGENTS.md
+
 .DS_store
 samples
 results

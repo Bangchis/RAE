@@ -350,11 +350,55 @@ python3 src_jax/stage1_sample.py \
 This is intentionally scoped to inference and checkpoint verification. The
 adversarial Stage 1 training loop has not been ported to JAX in this branch.
 
+### Stage 1 Latent Stats on the JAX Path
+
+For a new dataset, first bootstrap normalization with an identity stats file,
+then run the JAX stats pass:
+
+```bash
+python3 src_jax/build_stage1_stats.py \
+  --config configs/stage1/pretrained/DINOv2-B.yaml \
+  --input /path/to/train_imagefolder \
+  --output /path/to/stage1_stat.pt \
+  --batch-size 16 \
+  --set stage_1.params.normalization_stat_path=/path/to/bootstrap_identity_stat.pt
+```
+
+The output `stat.pt` matches the original repo format (`mean` / `var` tensors),
+so it can be consumed by both `src/` and `src_jax/`.
+
+### JAX Folder Reconstruction
+
+```bash
+python3 src_jax/reconstruct_folder.py \
+  --config configs/stage1/pretrained/DINOv2-B.yaml \
+  --input /path/to/val_imagefolder \
+  --output-dir recon_jax_dir \
+  --batch-size 8
+```
+
+This is the simplest way to export a validation reconstruction set before
+building FID references or comparing Stage 1 decoder changes.
+
+### Kaggle CelebA Notebook
+
+Use [../raes-jax-celeba-kaggle.ipynb](../raes-jax-celeba-kaggle.ipynb) when you
+want the standard Kaggle-style workflow end to end:
+
+- clone the repo and checkout `jax`
+- install dependencies with `uv`
+- convert CelebA into a real `256x256` `ImageFolder`
+- create the bootstrap identity stats file
+- compute Stage 1 latent stats for CelebA
+- export Stage 1 reconstructions and build validation FID stats
+- write a CelebA Stage 2 config and launch `src_jax/train.py`
+
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celeba-kaggle-tpuv5e8.ipynb](../raes-jax-celeba-kaggle-tpuv5e8.ipynb).
-It installs `jax[tpu]` and runs the JAX/TPU sanity check in a fresh Python
-process so a just-reinstalled `jax`/`jaxlib` pair does not trip notebook-kernel
-skew.
+That copy switches installation to `jax[tpu]`, runs the TPU device check in a
+fresh Python process so a just-reinstalled `jax`/`jaxlib` pair does not trip
+over notebook-kernel skew, keeps Stage 1 and Stage 2 on TPU, and moves
+FID/stat-heavy work to the host CPU side with `96` threads.
 
 ## 9. Upload a JAX Run to Hugging Face
 

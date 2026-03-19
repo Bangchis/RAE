@@ -111,6 +111,10 @@ the TPU loop.
   distributed reconstruction of an `ImageFolder`
 - [src_jax/stage1_sample.py](../src_jax/stage1_sample.py):
   reconstruct a single image through the JAX RAE path
+- [src_jax/reconstruct_folder.py](../src_jax/reconstruct_folder.py):
+  reconstruct an image folder through the JAX RAE path
+- [src_jax/build_stage1_stats.py](../src_jax/build_stage1_stats.py):
+  compute dataset-specific Stage 1 latent normalization stats
 
 ### FID Utilities
 
@@ -133,6 +137,8 @@ The JAX path is intentionally kept thin:
   by NNX
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
   training, checkpoint loading, sampling, guidance wiring, and FID glue
+- [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
+  shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
 - [src_jax/hf_utils.py](../src_jax/hf_utils.py): Hugging Face upload
   helpers for finished workdirs or checkpoint folders
 
@@ -203,12 +209,15 @@ src_jax/
   config_adapter.py
   stage2_runtime.py
   stage1_runtime.py
+  build_stage1_stats.py
+  reconstruct_folder.py
   hf_utils.py
   train.py
   sample.py
   sample_ddp.py
   stage1_sample.py
   push_hf.py
+raes-jax-celeba-kaggle.ipynb
 ```
 
 ## Experiment Artifacts

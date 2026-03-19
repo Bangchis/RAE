@@ -49,6 +49,20 @@ Adapter JAX không tạo schema mới cho Stage 1. Nó đọc trực tiếp:
 Các giá trị này được chuyển sang encoder RAE của backend NNX để phục vụ
 reconstruction và decode latent khi sampling Stage 2.
 
+Nếu cần tính stat riêng cho dataset mới, có thể dùng:
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/build_stage1_stats.py \
+  --config <stage1_config> \
+  --input <train_imagefolder> \
+  --output <stage1_stat.pt> \
+  --set stage_1.params.normalization_stat_path=<bootstrap_identity_stat.pt>
+\end{lstlisting}
+
+Trong đó file bootstrap identity stat chỉ cần chứa \texttt{mean = 0} và
+\texttt{var = 1}. Mục tiêu là để pass tính stat đầu tiên không bị chuẩn hóa theo
+dataset khác, nhưng vẫn thỏa contract load stat của backend NNX.
+
 \subsection{Block \texttt{stage\_2}}
 
 Một số key quan trọng:
