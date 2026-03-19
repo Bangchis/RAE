@@ -106,7 +106,8 @@ python3 src_jax/train.py \
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
   \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; bản này chuyển FID và build
   reference stats sang host CPU thay vì \texttt{cuda}, đồng thời cũng giữ các
-  bước JAX trong \texttt{.venv} riêng qua \texttt{uv run} và kiểm tra
+  bước JAX trong \texttt{.venv} riêng qua \texttt{uv run}, tự xóa cờ
+  executable-stack mà Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra
   \texttt{jax}/TPU bằng tiến trình Python mới.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.

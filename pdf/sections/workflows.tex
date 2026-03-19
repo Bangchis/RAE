@@ -238,6 +238,7 @@ Kaggle:
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Bản này đổi sang đường cài
 \texttt{jax[tpu]}, giữ các bước phụ thuộc package trong \texttt{.venv} riêng
-qua \texttt{uv run}, chạy bước xác nhận TPU trong một tiến trình Python mới,
-giữ Stage 1 và Stage 2 ở TPU, còn FID và thống kê tham chiếu sẽ chạy trên host
-CPU nhiều luồng.
+qua \texttt{uv run}, tự xóa cờ executable-stack mà Kaggle có thể chặn trên
+\texttt{jaxlib}, chạy bước xác nhận TPU trong một tiến trình Python mới, giữ
+Stage 1 và Stage 2 ở TPU, còn FID và thống kê tham chiếu sẽ chạy trên host CPU
+nhiều luồng.

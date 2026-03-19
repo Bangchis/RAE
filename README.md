@@ -34,7 +34,7 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
 - [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow, using a dedicated `uv` virtualenv plus `uv run`
-- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with a dedicated `uv` virtualenv, host-side CPU FID, and a fresh-process TPU sanity check
+- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with a dedicated `uv` virtualenv, an automatic `jaxlib` executable-stack fix for Kaggle, host-side CPU FID, and a fresh-process TPU sanity check
 
 ## Environment
 
@@ -61,6 +61,7 @@ Use the docs folder as the detailed guide for this branch:
 
    Notes:
    - On TPU, replace `jax[cuda12]` with the TPU wheel flow you already use in your environment.
+   - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
    - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
 ## Data & Model Preparation
@@ -323,7 +324,7 @@ Key behavior:
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but keeps package-backed steps inside a dedicated `uv` virtualenv via `uv run` instead of relying on the notebook kernel interpreter.
-- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, and moves FID/stat-heavy host work onto the `96 vCPU` side.
+- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, and moves FID/stat-heavy host work onto the `96 vCPU` side.
 
 Current limitation:
 
