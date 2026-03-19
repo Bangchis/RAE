@@ -206,6 +206,8 @@ def build_backend_config_dict(
             "pretrained_path": decoder_ckpt,
             "stats_path": stats_path,
             "resolution": int(stage1_params.get("encoder_input_size", 224)),
+            "downsample_factor": max(1, int(resolved_image_size) // max(1, int(latent_size[1]))),
+            "latent_channels": int(latent_size[0]),
             "encoded_pixels": False,
             "pretrained_model_name_or_path": stage1_encoder_model,
         },

@@ -64,6 +64,7 @@ Use the docs folder as the detailed guide for this branch:
    - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
    - This repo patches the pinned `diffuse_nnx` checkout to import Dinov2 models from `transformers` subpackages, and the supported version for that path is `transformers==4.57.1`.
    - The same backend patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage-1 path does not need that package unless you actually use backend components that fetch assets from GCS.
+   - The JAX adapter derives the Stage-1 latent `downsample_factor` and `latent_channels` from `misc.latent_size`, so backend preview sampling and FID operate at latent resolution instead of accidentally allocating image-resolution latent noise.
    - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
 ## Data & Model Preparation

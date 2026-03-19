@@ -35,6 +35,9 @@ from `transformers` subpackages, so use `transformers==4.57.1` on this path.
 The same patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage 1
 path does not need that package unless you actually use backend code that pulls
 assets from GCS.
+The adapter also derives the Stage-1 latent downsample factor from
+`misc.latent_size`, so backend preview sampling and FID stay in latent space
+instead of allocating image-resolution latent noise.
 
 ## 2. Prepare Models and Data
 

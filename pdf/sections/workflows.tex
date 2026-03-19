@@ -30,6 +30,9 @@ subpackage của \texttt{transformers}, nên nên dùng
 Patch này cũng chuyển \texttt{google-cloud-storage} sang import lười, nên đường
 Stage 1 với RAE/DINO không cần cài package đó trừ khi bạn thực sự dùng các
 thành phần backend có tải asset từ GCS.
+Adapter cũng tự suy ra \texttt{downsample\_factor} và \texttt{latent\_channels}
+từ \texttt{misc.latent\_size}, nên bước preview sample và FID của backend vẫn
+chạy ở latent resolution thay vì lỡ cấp phát noise theo image resolution.
 
 \subsection{Chuẩn bị model và dữ liệu}
 
