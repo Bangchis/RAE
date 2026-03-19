@@ -63,6 +63,7 @@ Use the docs folder as the detailed guide for this branch:
    - On TPU, replace `jax[cuda12]` with the TPU wheel flow you already use in your environment.
    - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
    - This repo patches the pinned `diffuse_nnx` checkout to import Dinov2 models from `transformers` subpackages, and the supported version for that path is `transformers==4.57.1`.
+   - The same backend patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage-1 path does not need that package unless you actually use backend components that fetch assets from GCS.
    - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
 ## Data & Model Preparation

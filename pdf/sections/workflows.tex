@@ -27,6 +27,9 @@ Lần chạy JAX đầu tiên sẽ tự bootstrap backend \texttt{diffuse\_nnx} 
 Repo này tự vá backend \texttt{diffuse\_nnx} để import các model Dinov2 từ
 subpackage của \texttt{transformers}, nên nên dùng
 \texttt{transformers==4.57.1} cho đường này.
+Patch này cũng chuyển \texttt{google-cloud-storage} sang import lười, nên đường
+Stage 1 với RAE/DINO không cần cài package đó trừ khi bạn thực sự dùng các
+thành phần backend có tải asset từ GCS.
 
 \subsection{Chuẩn bị model và dữ liệu}
 

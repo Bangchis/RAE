@@ -55,6 +55,13 @@ def _maybe_raise_backend_dependency_hint(exc: ImportError) -> None:
             "Reinstall that version in the active environment, for example: "
             "uv pip install --reinstall \"transformers==4.57.1\"."
         ) from exc
+    if "No module named 'google.cloud'" in message or "No module named 'google'" in message:
+        raise ImportError(
+            "The patched diffuse_nnx backend should lazy-load google-cloud-storage, so the "
+            "RAE/DINO Stage-1 path does not need that package at import time. Sync the latest "
+            "repo so `src_jax/vendor.py` can patch the cached backend checkout, or as a temporary "
+            "workaround install it with: uv pip install google-cloud-storage."
+        ) from exc
 
 
 def _to_config_dict(payload: dict[str, Any]) -> Any:

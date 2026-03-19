@@ -32,6 +32,9 @@ The first JAX run automatically bootstraps `diffuse_nnx` into
 `023afd23c7b62a8cdb00e840b36a4ab8fc970bba`.
 This repo patches the pinned `diffuse_nnx` checkout to import the Dinov2 models
 from `transformers` subpackages, so use `transformers==4.57.1` on this path.
+The same patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage 1
+path does not need that package unless you actually use backend code that pulls
+assets from GCS.
 
 ## 2. Prepare Models and Data
 

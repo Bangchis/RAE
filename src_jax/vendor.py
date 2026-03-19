@@ -59,6 +59,58 @@ def _apply_backend_compat_patches(backend_dir: Path) -> None:
         "from transformers.models.dinov2_with_registers import Dinov2WithRegistersModel\n",
     )
 
+    encoder_utils_path = backend_dir / "networks" / "encoders" / "utils.py"
+    _patch_backend_file(
+        encoder_utils_path,
+        textwrap.dedent(
+            """\
+            \"\"\"File containing utility functions for the encoder.\"\"\"
+
+            # built-in libs
+            import math
+
+            # external libs
+            from google.cloud import storage
+
+            def download_blob(bucket_name, source_blob_name, destination_file_name):
+                \"\"\"Downloads a blob from the bucket.\"\"\"
+                storage_client = storage.Client()
+                bucket = storage_client.bucket(bucket_name)
+                blob = bucket.blob(source_blob_name)
+                blob.download_to_filename(destination_file_name)
+            """
+        ),
+        textwrap.dedent(
+            """\
+            \"\"\"File containing utility functions for the encoder.\"\"\"
+
+            # built-in libs
+            import math
+
+
+            def _load_storage():
+                try:
+                    from google.cloud import storage
+                except ImportError as exc:
+                    raise ImportError(
+                        \"google-cloud-storage is only required when diffuse_nnx needs to download \"
+                        \"encoder assets from GCS. Install it with `uv pip install google-cloud-storage` \"
+                        \"or provide the expected local checkpoint files.\"
+                    ) from exc
+                return storage
+
+
+            def download_blob(bucket_name, source_blob_name, destination_file_name):
+                \"\"\"Downloads a blob from the bucket.\"\"\"
+                storage = _load_storage()
+                storage_client = storage.Client()
+                bucket = storage_client.bucket(bucket_name)
+                blob = bucket.blob(source_blob_name)
+                blob.download_to_filename(destination_file_name)
+            """
+        ),
+    )
+
 
 def resolve_backend_dir(explicit_dir: str | None = None) -> Path:
     raw = explicit_dir or os.environ.get(BACKEND_ENV_VAR)
