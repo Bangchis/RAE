@@ -13,7 +13,8 @@ Representation Autoencoders (RAE):
 The XLA branch focuses on TPU execution for Stage 2 training and sampling, with
 optional host-side FID scoring. The `jax` branch also adds a thin JAX/NNX
 compatibility layer under `src_jax/` that maps the repository's existing YAML
-schema into a pinned `diffuse_nnx` backend.
+schema into a pinned `diffuse_nnx` backend, including backend-native FID
+reference building and held-out validation loss.
 
 ## End-to-End Data Flow
 
@@ -89,8 +90,9 @@ the TPU loop.
   checkpointing, wandb logging, validation loss, preview sampling, and optional
   host-side FID.
 - [src_jax/train.py](../src_jax/train.py): Stage 2 JAX/NNX
-  training, OmegaConf CLI overrides, wandb logging, optional FID, and optional
-  Hugging Face upload of the finished workdir.
+  training, OmegaConf CLI overrides, wandb logging, held-out validation loss,
+  optional online FID, and optional Hugging Face upload of the finished
+  workdir.
 
 ### Stage 2 Sampling
 
@@ -120,6 +122,9 @@ the TPU loop.
 
 - [src/build_fid_stats.py](../src/build_fid_stats.py): build
   reference `mu` and `sigma`
+- [src_jax/build_fid_stats.py](../src_jax/build_fid_stats.py): build
+  backend-native reference stats with the same Flax Inception detector used by
+  JAX online FID
 - [src/evaluate_fid.py](../src/evaluate_fid.py): evaluate a
   generated archive against reference stats
 - [src/utils/fid_utils.py](../src/utils/fid_utils.py): reusable
@@ -136,7 +141,8 @@ The JAX path is intentionally kept thin:
   translates the repository's OmegaConf YAML into the backend config expected
   by NNX
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
-  training, checkpoint loading, sampling, guidance wiring, and FID glue
+  training, checkpoint loading, sampling, guidance wiring, JAX validation-loss
+  integration, and FID glue
 - [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
   shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
 - [src_jax/hf_utils.py](../src_jax/hf_utils.py): Hugging Face upload
@@ -176,6 +182,10 @@ There are now two evaluation layers in Stage 2 training:
 
 That means train-time FID is available on CPU-only TPU VMs as long as the host
 has enough RAM and CPU throughput.
+
+On the JAX path, online FID uses the backend Flax Inception detector instead of
+the host-side `torch-fidelity` path, so matching `fid_ref` files should be
+built with [src_jax/build_fid_stats.py](../src_jax/build_fid_stats.py).
 
 ## Code Map
 

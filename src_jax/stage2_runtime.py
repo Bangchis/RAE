@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import math
 import os
+import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +72,437 @@ def _patch_backend_metric_writer_for_kaggle(trainer: Any) -> Any | None:
 
     trainer.metric_writers.create_default_writer = patched_create_default_writer
     return original_create_default_writer
+
+
+def _build_backend_eval_dataset(trainer: Any, config: Any) -> Any | None:
+    eval_data_dir = config.eval.get("data_dir")
+    if not eval_data_dir:
+        return None
+
+    eval_root = Path(str(eval_data_dir)).expanduser().resolve()
+    if not eval_root.exists():
+        raise FileNotFoundError(f"Validation ImageFolder not found: {eval_root}")
+
+    if config.data.get("latent_dataset", False):
+        return trainer.local_imagenet_dataset.LatentDataset(
+            str(eval_root),
+            use_labels=True,
+            cache=False,
+        )
+
+    transform = trainer.local_imagenet_dataset.utils.build_transform(int(config.data.image_size))
+    return trainer.local_imagenet_dataset.datasets.ImageFolder(root=str(eval_root), transform=transform)
+
+
+def _build_backend_eval_loader(trainer: Any, config: Any, dataset: Any) -> Any:
+    import torch
+
+    per_device_batch_size = int(config.eval.get("loss_batch_size", 4))
+    if per_device_batch_size <= 0:
+        raise ValueError("eval.batch_size must be greater than 0 for JAX validation loss.")
+
+    local_batch_size = per_device_batch_size * max(1, trainer.jax.local_device_count())
+    num_workers = int(config.eval.get("num_workers", config.data.num_workers))
+    if num_workers < 0:
+        raise ValueError("eval.num_workers must be non-negative.")
+
+    process_index = trainer.jax.process_index()
+    process_count = max(1, trainer.jax.process_count())
+    local_indices = list(range(process_index, len(dataset), process_count))
+    subset = torch.utils.data.Subset(dataset, local_indices)
+    worker_init_fn = None
+    if num_workers > 0:
+        worker_init_fn = functools.partial(
+            trainer.local_imagenet_dataset.seed_worker,
+            offset_seed=0,
+            global_seed=int(config.data.seed_pt),
+        )
+
+    return torch.utils.data.DataLoader(
+        subset,
+        batch_size=local_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=False,
+        worker_init_fn=worker_init_fn,
+        persistent_workers=num_workers > 0,
+        timeout=60.0 if num_workers > 0 else 0.0,
+    )
+
+
+def _metric_tree_to_host(metric_dict: Any) -> dict[str, float]:
+    import jax
+
+    host_metrics = jax.device_get(metric_dict)
+    return {key: float(np.asarray(value)) for key, value in host_metrics.items()}
+
+
+def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
+    original_train_and_evaluate = trainer.train_and_evaluate
+
+    def eval_step(state: Any, batch: dict[str, Any], graph: Any, *, use_ema: bool) -> dict[str, Any]:
+        merged = trainer.nnx.merge(graph, state)
+        if use_ema:
+            model = merged.ema
+        else:
+            model = merged.model
+        model = model.interface if hasattr(model, "interface") else model
+
+        latents, labels = batch["latents"], batch["labels"]
+        if "features" in batch:
+            loss_dict = model(latents, batch["features"], y=labels)
+        else:
+            loss_dict = model(latents, y=labels)
+        return {loss_type: loss.mean() for loss_type, loss in loss_dict.items()}
+
+    def run_validation_pass(
+        *,
+        state: Any,
+        graph: Any,
+        use_ema: bool,
+        loader: Any,
+        encoder: Any,
+        detector: Any,
+        mesh: Any,
+        p_eval_step: Any,
+        max_batches: int,
+    ) -> dict[str, float]:
+        metric_sums: dict[str, float] = {}
+        total_samples = 0
+        used_batches = 0
+        start_t = time.time()
+
+        for raw_batch in loader:
+            batch_images = raw_batch[0]
+            if int(batch_images.shape[0]) % max(1, trainer.jax.local_device_count()) != 0:
+                continue
+
+            parsed_batch = trainer.data_utils.parse_batch(raw_batch, encoder, mesh, detector=detector)
+            with mesh:
+                metric_dict = p_eval_step(state, parsed_batch, graph)
+
+            batch_metrics = _metric_tree_to_host(metric_dict)
+            batch_size = int(batch_images.shape[0]) * max(1, trainer.jax.process_count())
+            for key, value in batch_metrics.items():
+                metric_sums[key] = metric_sums.get(key, 0.0) + value * batch_size
+            total_samples += batch_size
+            used_batches += 1
+            if max_batches > 0 and used_batches >= max_batches:
+                break
+
+        duration = time.time() - start_t
+        summary: dict[str, float] = {}
+        prefix = "ema" if use_ema else "model"
+
+        count_vec = np.array([total_samples, used_batches, duration], dtype=np.float64)
+        gathered_counts = np.asarray(
+            trainer.jax.experimental.multihost_utils.process_allgather(count_vec, tiled=False)
+        )
+        if gathered_counts.ndim == 1:
+            global_counts = gathered_counts
+        else:
+            global_counts = gathered_counts.sum(axis=0)
+            global_counts[2] = gathered_counts[:, 2].max()
+
+        global_total_samples = int(global_counts[0])
+        global_used_batches = int(global_counts[1])
+        max_duration = float(global_counts[2])
+
+        if metric_sums:
+            metric_names = sorted(metric_sums)
+            metric_vec = np.asarray([metric_sums[name] for name in metric_names], dtype=np.float64)
+            gathered_metrics = np.asarray(
+                trainer.jax.experimental.multihost_utils.process_allgather(metric_vec, tiled=False)
+            )
+            global_metric_vec = gathered_metrics if gathered_metrics.ndim == 1 else gathered_metrics.sum(axis=0)
+            if global_total_samples > 0:
+                for idx, name in enumerate(metric_names):
+                    summary[f"eval/{prefix}_{name}"] = float(global_metric_vec[idx] / global_total_samples)
+
+        summary[f"eval/{prefix}_batches"] = float(global_used_batches)
+        summary[f"eval/{prefix}_samples"] = float(global_total_samples)
+        summary[f"eval/{prefix}_duration_sec"] = max_duration
+        return summary
+
+    def patched_train_and_evaluate(config: Any, workdir: str):
+        if not config.eval.get("loss_on"):
+            return original_train_and_evaluate(config, workdir)
+
+        image_size = config.data.image_size
+
+        writer = trainer.metric_writers.create_default_writer(
+            logdir=workdir, just_logging=trainer.jax.process_index() != 0
+        )
+
+        if config.standalone_eval:
+            exp_name = f"{config.exp_name}_eval"
+            project_name = "evaluation"
+        else:
+            exp_name = config.exp_name
+            project_name = config.project_name
+
+        trainer.wandb_utils.initialize(config, exp_name=exp_name, project_name=project_name)
+
+        if config.data.batch_size % trainer.jax.device_count() > 0:
+            raise ValueError("Batch size must be divisible by the number of devices")
+
+        dataset = trainer.local_imagenet_dataset.build_imagenet_dataset(
+            is_train=True,
+            data_dir=config.data.data_dir,
+            image_size=image_size,
+            latent_dataset=config.data.latent_dataset,
+        )
+
+        encoder, model, optimizer, sampler, ema, learning_rate_fn = trainer.init_utils.build_models(config)
+
+        detector = None
+        if config.get("repa"):
+            detector = trainer.init_utils.instantiate_detector(config)
+            model = trainer.init_utils.instantiate_repa(
+                config, model, feature_dim=detector.network.config.hidden_size
+            )
+            optimizer, _ = trainer.init_utils.instantiate_optimizer(config, model)
+
+        ckpt_mngr = trainer.ckpt_utils.build_checkpoint_manager(workdir, **config.checkpoint.options)
+        if config.standalone_eval:
+            restore_step = config.get("restore_step") if config.get("restore_step") else ckpt_mngr.latest_step()
+        else:
+            restore_step = ckpt_mngr.latest_step()
+
+        opt_graph, opt_rng_state, opt_state = trainer.nnx.split(optimizer, trainer.nnx.RngKey, ...)
+
+        if config.get("pretrained_ckpt"):
+            _, _, ema_state = trainer.nnx.split(ema, trainer.nnx.RngState, ...)
+            ema_state = trainer.ckpt_utils.restore_checkpoints(
+                config.pretrained_ckpt, 0, opt_state, opt_rng_state, ema_state, ema_only=True
+            )
+            trainer.nnx.update(ema, ema_state)
+
+        _, _, ema_state = trainer.nnx.split(ema, trainer.nnx.RngKey, ...)
+
+        loaded_state, loaded_rng_state, loaded_ema_state = trainer.ckpt_utils.restore_checkpoints(
+            workdir, restore_step, opt_state, opt_rng_state, ema_state, mngr=ckpt_mngr
+        )
+
+        mesh = trainer.sharding_utils.create_device_mesh(
+            config.sharding.mesh,
+            allow_split_physical_axes=config.sharding.get("mesh_allow_split_physical_axes", False),
+        )
+
+        repl_sharding = trainer.NamedSharding(mesh, trainer.P())
+        (
+            graphdef,
+            state,
+            ema_graphdef,
+            ema_state,
+            state_sharding,
+            ema_state_sharding,
+        ) = trainer.sharding_utils.update_model_sharding(
+            opt_graph,
+            loaded_state,
+            loaded_rng_state,
+            ema,
+            loaded_ema_state,
+            mesh=mesh,
+            sharding_strategy=config.sharding.strategy,
+        )
+
+        del opt_state, opt_rng_state, loaded_state, loaded_ema_state
+
+        optimizer = trainer.nnx.merge(graphdef, state)
+        ema = trainer.nnx.merge(ema_graphdef, ema_state)
+        model = optimizer.model.interface if hasattr(optimizer.model, "interface") else optimizer.model
+
+        step = 0 if restore_step is None else restore_step
+
+        loader = trainer.local_imagenet_dataset.build_imagenet_loader(config, dataset, offset_seed=step)
+        eval_dataset = _build_backend_eval_dataset(trainer, config)
+        eval_loader = _build_backend_eval_loader(trainer, config, eval_dataset) if eval_dataset is not None else None
+
+        if config.visualize.get("on"):
+            trainer.vis_utils.visualize(config, model, ema.ema, encoder, sampler, step, mesh=mesh)
+            if config.visualize.get("visualize_reconstruction"):
+                in_x, _ = next(iter(loader))
+                in_x = in_x[: config.visualize.num_samples].permute([0, 2, 3, 1]).numpy()
+                trainer.vis_utils.visualize_reconstruction(config, encoder, in_x, mesh=mesh)
+
+        if config.eval.get("fid_on") and config.eval.get("on_load"):
+            for guidance_scale, sample_sizes in zip(
+                config.eval.all_guidance_scales,
+                config.eval.all_eval_samples_nums,
+            ):
+                trainer.fid.calculate_fid(
+                    config,
+                    dataset,
+                    sampler,
+                    ema.ema,
+                    encoder,
+                    guidance_scale,
+                    None,
+                    sample_sizes,
+                    step,
+                    mesh=mesh,
+                )
+
+        if config.standalone_eval:
+            return
+
+        metrics_history = defaultdict(list)
+        metrics_interval = defaultdict(list)
+        train_metrics_last_t = time.time()
+        loader_iter = iter(loader)
+
+        p_train_step = trainer.jax.jit(
+            trainer.train_step,
+            out_shardings=(state_sharding, ema_state_sharding, repl_sharding),
+            static_argnums=(3, 4),
+            donate_argnums=(0, 1),
+        )
+
+        p_eval_ema_step = trainer.jax.jit(
+            lambda cur_state, batch, graph: eval_step(cur_state, batch, graph, use_ema=True),
+            out_shardings=repl_sharding,
+            static_argnums=(2,),
+        )
+        p_eval_model_step = trainer.jax.jit(
+            lambda cur_state, batch, graph: eval_step(cur_state, batch, graph, use_ema=False),
+            out_shardings=repl_sharding,
+            static_argnums=(2,),
+        )
+
+        def sync_state(cur_state: Any):
+            return cur_state
+
+        p_sync_state = trainer.jax.jit(sync_state, out_shardings=repl_sharding)
+
+        hooks = []
+        report_progress = trainer.periodic_actions.ReportProgress(
+            num_train_steps=config.total_steps, writer=writer
+        )
+        if trainer.jax.process_index() == 0:
+            hooks += [
+                report_progress,
+                trainer.periodic_actions.Profile(logdir=workdir, num_profile_steps=5),
+            ]
+
+        for i in range(step, config.total_steps):
+            batch = trainer.data_utils.parse_batch(next(loader_iter), encoder, mesh, detector=detector)
+
+            with trainer.jax.profiler.StepTraceAnnotation("train", step_num=step):
+                with mesh:
+                    state, ema_state, metric_dict = p_train_step(state, ema_state, batch, graphdef, ema_graphdef)
+
+                for key, value in metric_dict.items():
+                    metrics_interval[key].append(value)
+
+            if (restore_step is None or step == restore_step) and i == 0:
+                trainer.logging.info("Initial compilation completed.")
+
+            for hook in hooks:
+                hook(step)
+
+            if config.get("log_every_steps") and (step + 1) % config.log_every_steps == 0:
+                for key, value in metrics_interval.items():
+                    metrics_history[key].append(sum(value) / len(value))
+                metrics_interval = defaultdict(list)
+
+                summary = {f"train_{key}": float(value[-1]) for key, value in metrics_history.items()}
+                summary["steps_per_second"] = config.log_every_steps / (time.time() - train_metrics_last_t)
+                summary["learning_rate"] = learning_rate_fn(step)
+                summary["step"] = step + 1
+
+                trainer.wandb_utils.log_copy(summary)
+                writer.write_scalars(step + 1, summary)
+                metrics_history = defaultdict(list)
+                train_metrics_last_t = time.time()
+
+            loss_every_steps = int(config.eval.get("loss_every_steps", 0))
+            if eval_loader is not None and loss_every_steps > 0 and (step + 1) % loss_every_steps == 0:
+                eval_summary = run_validation_pass(
+                    state=ema_state,
+                    graph=ema_graphdef,
+                    use_ema=True,
+                    loader=eval_loader,
+                    encoder=encoder,
+                    detector=detector,
+                    mesh=mesh,
+                    p_eval_step=p_eval_ema_step,
+                    max_batches=int(config.eval.get("max_batches", 0)),
+                )
+                if config.eval.get("eval_model", False):
+                    eval_summary.update(
+                        run_validation_pass(
+                            state=state,
+                            graph=graphdef,
+                            use_ema=False,
+                            loader=eval_loader,
+                            encoder=encoder,
+                            detector=detector,
+                            mesh=mesh,
+                            p_eval_step=p_eval_model_step,
+                            max_batches=int(config.eval.get("max_batches", 0)),
+                        )
+                    )
+                eval_summary["step"] = step + 1
+                trainer.wandb_utils.log_copy(eval_summary)
+                writer.write_scalars(step + 1, eval_summary)
+
+            if config.visualize.get("on") and (step + 1) % config.visualize_every_steps == 0:
+                trainer.nnx.update(ema, ema_state)
+                trainer.nnx.update(optimizer, state)
+                model = optimizer.model.interface if hasattr(optimizer.model, "interface") else optimizer.model
+                trainer.vis_utils.visualize(config, model, ema.ema, encoder, sampler, step, mesh=mesh)
+
+            if config.eval.get("fid_on"):
+                for guidance_scale, sample_sizes, every_steps in zip(
+                    config.eval.all_guidance_scales,
+                    config.eval.all_eval_samples_nums,
+                    config.eval.eval_every_steps,
+                ):
+                    time_for_fid, sample_sizes = trainer.logging_utils.is_it_time_for_fid(
+                        sample_sizes, every_steps, step
+                    )
+                    if time_for_fid:
+                        trainer.nnx.update(ema, ema_state)
+                        trainer.fid.calculate_fid(
+                            config,
+                            dataset,
+                            sampler,
+                            ema.ema,
+                            encoder,
+                            guidance_scale,
+                            None,
+                            sample_sizes,
+                            step,
+                            mesh=mesh,
+                        )
+
+            if (step + 1) % config.save_every_steps == 0 or step + 1 == config.total_steps:
+                trainer.nnx.update(ema, ema_state)
+                trainer.nnx.update(optimizer, state)
+                _, saved_rng_state, saved_state = trainer.nnx.split(optimizer, trainer.nnx.RngKey, ...)
+                saved_state, saved_rng_state = trainer.jax.device_get(
+                    (p_sync_state(saved_state), p_sync_state(saved_rng_state))
+                )
+                _, _, saved_ema_state = trainer.nnx.split(ema, trainer.nnx.RngKey, ...)
+                saved_ema_state = trainer.jax.device_get(p_sync_state(saved_ema_state))
+                trainer.ckpt_utils.save_checkpoints(
+                    workdir,
+                    step + 1,
+                    saved_state,
+                    saved_rng_state,
+                    saved_ema_state,
+                    mngr=ckpt_mngr,
+                )
+                del saved_state, saved_rng_state, saved_ema_state
+
+            step += 1
+
+        return metrics_history
+
+    trainer.train_and_evaluate = patched_train_and_evaluate
+    return original_train_and_evaluate
 
 
 def _maybe_raise_backend_dependency_hint(exc: ImportError) -> None:
@@ -440,12 +874,14 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
         init_utils.build_models = patched_build_models
 
     original_create_default_writer = _patch_backend_metric_writer_for_kaggle(trainer)
+    original_train_and_evaluate = _patch_backend_train_loop_for_eval(trainer)
 
     try:
         trainer.train_and_evaluate(backend_cfg, str(workdir))
     finally:
         if original_create_default_writer is not None:
             trainer.metric_writers.create_default_writer = original_create_default_writer
+        trainer.train_and_evaluate = original_train_and_evaluate
         init_utils.build_models = original_build_models
 
     if args.hf_repo_id:

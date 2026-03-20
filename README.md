@@ -149,8 +149,9 @@ eval:
   stages.
 - `training` contains defaults that the training scripts consume (epochs,
   learning rate, EMA decay, gradient accumulation, etc.).
-- `eval` is optional and enables TPU-native validation loss during Stage 2
-  training without running FID online.
+- `eval` is optional. On the XLA path it controls TPU-native validation loss and
+  optional host-side FID. On the JAX path it now also drives held-out
+  validation loss plus optional online FID.
 
 Stage 1 training configs additionally include a top-level `gan` block that
 configures the discriminator architecture and the LPIPS/GAN loss schedule.
@@ -225,7 +226,9 @@ and add `--wandb` to the training command.
 Stage 2 training now logs the following namespaces:
 
 - `train/*`: loss, learning rate, optimizer steps/sec, images/sec, epoch, and gradient norm when clipping is enabled.
-- `eval/*`: periodic validation loss on a held-out ImageFolder split (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), and optional FID metrics (`eval/ema_fid`, `eval/model_fid`) when configured.
+- `eval/*`: periodic validation loss on a held-out `ImageFolder` split
+  (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), together
+  with duration/batch counters for each validation pass.
 - `checkpoint/*`: checkpoint save step.
 - `samples/ema`: EMA preview images logged at the training step.
 
@@ -272,10 +275,11 @@ python3 src_jax/train.py \
   --set training.global_batch_size=256
 ```
 
-On Kaggle TPU, prefer adding `--set training.num_workers=0` so PyTorch does not
-`fork()` DataLoader workers after JAX has already initialized multithreaded
-runtime state. The adapter also disables the backend TensorBoard summary writer
-on Kaggle and keeps metric logging on stdout plus wandb.
+On Kaggle TPU, prefer adding `--set training.num_workers=1` so the backend
+PyTorch loader stays compatible with `persistent_workers=True` without forking a
+large worker pool after JAX has already initialized multithreaded runtime
+state. The adapter also disables the backend TensorBoard summary writer on
+Kaggle and keeps metric logging on stdout plus wandb.
 
 ```bash
 python3 src_jax/sample.py \
@@ -332,8 +336,9 @@ Key behavior:
 - for dataset-specific Stage 1 stats, start from a bootstrap identity stats file (`mean=0`, `var=1`) and override `stage_1.params.normalization_stat_path` during the stats pass.
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
+- `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
 - `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but keeps package-backed steps inside a dedicated `uv` virtualenv via `uv run` instead of relying on the notebook kernel interpreter.
-- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, and moves FID/stat-heavy host work onto the `96 vCPU` side.
+- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, and builds the JAX `fid_ref` with the same backend detector used during online FID.
 
 Current limitation:
 
@@ -395,6 +400,22 @@ sends the resulting scalars to wandb when `--wandb` is enabled. If `fid_ref` is
 set, the same block can also trigger periodic FID evaluation. Sampling still
 runs on TPU; the Inception feature extraction runs on the host CPU or GPU.
 
+For the JAX adapter, prefer building `fid_ref` with the backend-native detector
+so the online FID path and reference statistics use the same Flax Inception
+implementation:
+
+```bash
+python3 src_jax/build_fid_stats.py \
+  --input /path/to/reference_images \
+  --output /path/to/reference_stats.pkl \
+  --batch-size 64 \
+  --num-workers 8
+```
+
+The JAX adapter accepts either a backend-native `.pkl`/`.pickle` file from
+`src_jax/build_fid_stats.py` or an older `.npz` file. When given `.npz`, the
+adapter converts it to the backend pickle format on first use.
+
 ### Local FID from generated `.npz`
 
 For custom datasets, first build reference statistics once:
@@ -409,7 +430,9 @@ python src/build_fid_stats.py \
 ```
 
 `--input` accepts either an image folder (recursively scanned) or an existing
-`.npy`/`.npz` image archive.
+`.npy`/`.npz` image archive. This path remains the right choice for the
+PyTorch/XLA utilities and for offline `torch-fidelity` scoring. For JAX online
+FID, prefer `src_jax/build_fid_stats.py`.
 
 If you already have a generated `.npz`, you can score it directly with:
 

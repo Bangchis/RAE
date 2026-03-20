@@ -170,10 +170,11 @@ python3 src_jax/train.py \
   --wandb
 ```
 
-On Kaggle TPU, prefer adding `--set training.num_workers=0` so PyTorch does not
-`fork()` DataLoader workers after JAX has already initialized multithreaded
-runtime state. The adapter also disables the backend TensorBoard summary writer
-on Kaggle and keeps metric logging on stdout plus wandb.
+On Kaggle TPU, prefer adding `--set training.num_workers=1` so the backend
+PyTorch loader stays compatible with `persistent_workers=True` without forking a
+large worker pool after JAX has already initialized multithreaded runtime
+state. The adapter also disables the backend TensorBoard summary writer on
+Kaggle and keeps metric logging on stdout plus wandb.
 
 Useful additions:
 
@@ -234,8 +235,9 @@ Behavior:
 - runs a deterministic center-crop validation loader
 - evaluates EMA by default
 - optionally evaluates the non-EMA model as well
-- uses distributed weighting so the global mean stays correct even when the
-  validation set is not divisible by world size
+- logs `eval/ema_loss`, `eval/ema_batches`, `eval/ema_samples`, and
+  `eval/ema_duration_sec`
+- logs the matching `eval/model_*` metrics when `eval_model: true`
 
 ## 7. FID During Training
 
@@ -415,7 +417,7 @@ That copy switches installation to `jax[tpu]`, keeps the package-backed steps
 inside a dedicated `uv` virtualenv via `uv run`, clears the `jaxlib`
 executable-stack flag that Kaggle can reject before each JAX import, runs the
 TPU device check in a fresh Python process, keeps Stage 1 and Stage 2 on TPU,
-and moves FID/stat-heavy work to the host CPU side with `96` threads.
+and builds the JAX `fid_ref` with the same backend detector used by online FID.
 
 ## 9. Upload a JAX Run to Hugging Face
 
@@ -471,6 +473,16 @@ python src/build_fid_stats.py \
   --num-threads 96
 ```
 
+For JAX online FID, build the reference with the backend-native detector:
+
+```bash
+python3 src_jax/build_fid_stats.py \
+  --input /path/to/reference_images \
+  --output /path/to/reference_stats.pkl \
+  --batch-size 64 \
+  --num-workers 8
+```
+
 From an existing `.npz` or `.npy` archive:
 
 ```bash
@@ -493,6 +505,9 @@ python src/evaluate_fid.py \
   --num-threads 96 \
   --output-json /path/to/samples.fid.json
 ```
+
+`src_jax/build_fid_stats.py` only accepts an `ImageFolder`, because it must run
+the same Flax Inception detector used by the backend online FID path.
 
 ## 11. Common Operational Notes
 

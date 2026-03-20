@@ -42,7 +42,7 @@ JAX adapter coverage:
 | `guidance` | yes | yes | yes | no |
 | `misc` | yes | yes | yes | no |
 | `training` | yes | no | no | no |
-| `eval` | yes, partially | no | no | no |
+| `eval` | yes | no | no | no |
 
 ## `stage_1`
 
@@ -278,10 +278,9 @@ python3 src_jax/train.py \
 
 ## `eval`
 
-This block is optional and only consumed by `src/train.py`.
-
-On the JAX path, only the FID-related subset is mapped today. Validation-loss
-parity with the XLA loop is not yet implemented in `src_jax/train.py`.
+This block is optional. Both `src/train.py` and `src_jax/train.py` consume it,
+but the concrete detector and artifact formats differ between the XLA and JAX
+paths.
 
 ### Validation Loss Keys
 
@@ -304,6 +303,10 @@ Meaning:
 - `max_batches`: optional per-rank cap
 - `eval_model`: score the non-EMA model in addition to EMA
 
+On the JAX path, these keys now drive a held-out `ImageFolder` validation loop
+inside `src_jax/train.py`, logging `eval/ema_loss` by default plus the matching
+duration/batch counters. Set `eval_model: true` to also log `eval/model_loss`.
+
 ### FID Keys
 
 ```yaml
@@ -321,7 +324,10 @@ eval:
 
 Meaning:
 
-- `fid_ref`: reference statistics built by `src/build_fid_stats.py`
+- `fid_ref`: reference statistics. For the JAX path, prefer
+  `src_jax/build_fid_stats.py` so the reference uses the same backend Flax
+  Inception detector as online FID. The adapter still accepts older `.npz`
+  files and converts them to backend pickle format automatically.
 - `fid_every`: cadence in optimizer steps
 - `fid_num_samples`: number of generated images per FID measurement
 - `fid_per_proc_batch_size`: generation batch per TPU core

@@ -112,9 +112,10 @@ File & Vai trò \\
 \endhead
 \texttt{src\_jax/vendor.py} & Bootstrap \texttt{diffuse\_nnx} vào \texttt{\~{}/.cache/rae\_jax/diffuse\_nnx} và pin commit \\
 \texttt{src\_jax/config\_adapter.py} & Chuyển YAML OmegaConf của repo sang config backend NNX \\
-\texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, FID glue, wandb bridge \\
+\texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, JAX validation-loss integration, FID glue, wandb bridge \\
 \texttt{src\_jax/stage1\_runtime.py} & Load encoder Stage 1 JAX, reconstruction một ảnh, reconstruction cả thư mục và tích lũy latent stat \\
 \texttt{src\_jax/build\_stage1\_stats.py} & Tạo file \texttt{stat.pt} theo định dạng mean / var để dùng lại cho Stage 1 \\
+\texttt{src\_jax/build\_fid\_stats.py} & Build \texttt{fid\_ref} bằng đúng detector Flax Inception của backend JAX \\
 \texttt{src\_jax/reconstruct\_folder.py} & Export reconstruction cho cả thư mục ảnh theo pipeline JAX \\
 \texttt{src\_jax/hf\_utils.py} & Upload file hoặc thư mục lên Hugging Face \\
 \bottomrule

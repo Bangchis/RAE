@@ -147,8 +147,9 @@ python3 src_jax/train.py \
   --wandb
 \end{lstlisting}
 
-Trên Kaggle TPU, nên thêm \texttt{--set training.num\_workers=0} để PyTorch
-không \texttt{fork()} DataLoader worker sau khi JAX đã khởi tạo runtime đa
+Trên Kaggle TPU, nên thêm \texttt{--set training.num\_workers=1} để backend
+PyTorch loader vẫn tương thích với \texttt{persistent\_workers=True} mà không
+\texttt{fork()} cả một pool worker lớn sau khi JAX đã khởi tạo runtime đa
 luồng. Adapter cũng tự tắt backend TensorBoard summary writer trên Kaggle và
 giữ metric ở stdout cùng wandb.
 
@@ -192,8 +193,18 @@ eval:
   fid_num_threads: 96
 \end{lstlisting}
 
-Đường JAX hiện ánh xạ phần FID quan trọng nhất của block \texttt{eval}, nhưng
-chưa có parity hoàn toàn cho validation loss như đường XLA.
+Đường JAX giờ cũng dùng block \texttt{eval} để chạy validation loss trên held-out
+\texttt{ImageFolder}, log \texttt{eval/ema\_loss} mặc định và thêm
+\texttt{eval/model\_loss} nếu bật \texttt{eval\_model}. Với online FID, nên xây
+\texttt{fid\_ref} bằng detector backend-native qua:
+
+\begin{lstlisting}[style=rae]
+python3 src_jax/build_fid_stats.py \
+  --input /path/to/reference_images \
+  --output /path/to/reference_stats.pkl \
+  --batch-size 64 \
+  --num-workers 8
+\end{lstlisting}
 
 \subsection{Sampling Stage 2}
 
@@ -256,5 +267,5 @@ Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{jax[tpu]}, giữ các bước phụ thuộc package trong \texttt{.venv} riêng
 qua \texttt{uv run}, tự xóa cờ executable-stack mà Kaggle có thể chặn trên
 \texttt{jaxlib}, chạy bước xác nhận TPU trong một tiến trình Python mới, giữ
-Stage 1 và Stage 2 ở TPU, còn FID và thống kê tham chiếu sẽ chạy trên host CPU
-nhiều luồng.
+Stage 1 và Stage 2 ở TPU, đồng thời build \texttt{fid\_ref} bằng đúng detector
+backend dùng cho online FID.

@@ -48,6 +48,47 @@ class JaxAdapterTests(unittest.TestCase):
             self.assertTrue(out_path.exists())
             self.assertEqual(out_path.suffix, ".pkl")
 
+    def test_eval_block_maps_validation_and_fid_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ref_path = Path(tmp_dir) / "ref_stats.npz"
+            np.savez(ref_path, mu=np.zeros(2048, dtype=np.float64), sigma=np.eye(2048, dtype=np.float64))
+
+            repo_cfg, config_path = load_repo_config(
+                "configs/stage2/training/ImageNet256/DiTDH-S_DINOv2-B.yaml",
+                overrides=[
+                    "eval.data_path=/tmp/imagenet_val",
+                    "eval.eval_every=5000",
+                    f"eval.fid_ref={ref_path}",
+                    "eval.fid_every=25000",
+                    "eval.fid_num_samples=4096",
+                    "eval.batch_size=8",
+                    "eval.num_workers=2",
+                    "eval.max_batches=16",
+                    "eval.eval_model=true",
+                ],
+            )
+            backend_cfg = build_backend_config_dict(
+                repo_cfg,
+                config_path=config_path,
+                mode="train",
+                data_path="/tmp/imagenet_train",
+                precision="bf16",
+                seed=7,
+                num_train_samples=1281167,
+                enable_eval=True,
+            )
+
+            self.assertTrue(backend_cfg["eval"]["on"])
+            self.assertTrue(backend_cfg["eval"]["loss_on"])
+            self.assertEqual(backend_cfg["eval"]["data_dir"], "/tmp/imagenet_val")
+            self.assertEqual(backend_cfg["eval"]["loss_every_steps"], 5000)
+            self.assertEqual(backend_cfg["eval"]["loss_batch_size"], 8)
+            self.assertEqual(backend_cfg["eval"]["num_workers"], 2)
+            self.assertEqual(backend_cfg["eval"]["max_batches"], 16)
+            self.assertTrue(backend_cfg["eval"]["eval_model"])
+            self.assertTrue(backend_cfg["eval"]["fid_on"])
+            self.assertTrue(str(backend_cfg["data"]["stat_dir"]).endswith(".pkl"))
+
 
 if __name__ == "__main__":
     unittest.main()

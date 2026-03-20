@@ -178,6 +178,12 @@ def build_backend_config_dict(
     epochs = int(training_cfg.get("epochs", 1))
     steps_per_epoch = max(1, math.ceil(num_train_samples / max(batch_size, 1)))
     total_steps = int(training_cfg.get("total_steps", epochs * steps_per_epoch))
+    eval_data_dir = resolve_repo_value(eval_cfg.get("data_path"), config_path=config_path)
+    eval_every = int(eval_cfg.get("eval_every", 0))
+    fid_every = int(eval_cfg.get("fid_every", eval_every))
+    fid_num_samples = int(eval_cfg.get("fid_num_samples", 0))
+    loss_on = bool(eval_data_dir) and eval_every > 0
+    fid_on = bool(eval_cfg.get("fid_ref")) and fid_num_samples > 0
 
     backend_cfg: dict[str, Any] = {
         "trainer": "DiT_ImageNet",
@@ -286,12 +292,21 @@ def build_backend_config_dict(
             "on_load": False,
             "seed": 42,
             "detector": "inception",
+            "data_dir": eval_data_dir,
+            "loss_on": loss_on,
+            "loss_every_steps": eval_every,
+            "max_batches": int(eval_cfg.get("max_batches", 0)),
+            "eval_model": bool(eval_cfg.get("eval_model", False)),
             "batch_size": int(eval_cfg.get("fid_per_proc_batch_size", 4)),
+            "loss_batch_size": int(eval_cfg.get("batch_size", 4)),
+            "num_workers": int(eval_cfg.get("num_workers", training_cfg.get("num_workers", 4))),
+            "fid_on": fid_on,
+            "fid_eval_model": bool(eval_cfg.get("fid_eval_model", False)),
             "inception_batch_size": int(eval_cfg.get("fid_batch_size", 64)),
             "save_samples_path": "",
             "all_guidance_scales": (guidance_scale,),
-            "all_eval_samples_nums": ((int(eval_cfg.get("fid_num_samples", 0)),),),
-            "eval_every_steps": ((int(eval_cfg.get("fid_every", eval_cfg.get("eval_every", 0))),),),
+            "all_eval_samples_nums": ((fid_num_samples,),),
+            "eval_every_steps": ((fid_every,),),
         },
         "sharding": {
             "mesh": [("data", -1)],
@@ -336,7 +351,7 @@ def build_backend_config_dict(
         else:
             backend_cfg["pretrained_ckpt"] = str(stage2_ckpt)
 
-    if enable_eval and eval_cfg.get("fid_ref") and int(eval_cfg.get("fid_num_samples", 0)) > 0:
+    if enable_eval and (loss_on or fid_on):
         backend_cfg["eval"]["on"] = True
 
     if mode != "train":

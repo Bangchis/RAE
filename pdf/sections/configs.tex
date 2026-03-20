@@ -30,7 +30,7 @@ Block & \texttt{src\_jax/train.py} & \texttt{src\_jax/sample.py} & \texttt{src\_
 \texttt{guidance} & yes & yes & yes & no \\
 \texttt{misc} & yes & yes & yes & no \\
 \texttt{training} & yes & no & no & no \\
-\texttt{eval} & yes, một phần & no & no & no \\
+\texttt{eval} & yes & no & no & no \\
 \bottomrule
 \end{longtable}
 \end{center}
@@ -120,9 +120,13 @@ Lưu ý:
 
 \subsection{Block \texttt{eval}}
 
-Đường JAX hiện dùng phần FID nhiều hơn phần validation loss. Nếu \texttt{fid\_ref}
-là file \texttt{.npz} của repo cũ, adapter sẽ tự chuyển nó sang định dạng pickle
-mà backend NNX hiểu được.
+Đường JAX giờ dùng block \texttt{eval} cho cả validation loss lẫn online FID.
+Các key \texttt{data\_path}, \texttt{eval\_every}, \texttt{batch\_size},
+\texttt{num\_workers}, \texttt{max\_batches}, và \texttt{eval\_model} sẽ điều
+khiển held-out validation loop trong \texttt{src\_jax/train.py}. Với
+\texttt{fid\_ref}, nên ưu tiên file \texttt{.pkl}/\texttt{.pickle} được build
+bởi \texttt{src\_jax/build\_fid\_stats.py}; nếu đưa file \texttt{.npz} cũ vào,
+adapter vẫn tự chuyển nó sang định dạng pickle mà backend NNX hiểu được.
 
 \subsection{Override từ CLI}
 
