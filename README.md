@@ -64,6 +64,7 @@ Use the docs folder as the detailed guide for this branch:
    - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
    - This repo patches the pinned `diffuse_nnx` checkout to import Dinov2 models from `transformers` subpackages, and the supported version for that path is `transformers==4.57.1`.
    - The same backend patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage-1 path does not need that package unless you actually use backend components that fetch assets from GCS.
+   - The backend bootstrap patch also fixes `diffuse_nnx` EMA initialization so the EMA starts from a copy of the current model instead of an all-zero parameter tree. Old Orbax checkpoints keep the EMA state they already saved, so start a fresh run if you need the corrected EMA trajectory.
    - The JAX adapter derives the Stage-1 latent `downsample_factor` and `latent_channels` from `misc.latent_size`, so backend preview sampling and FID operate at latent resolution instead of accidentally allocating image-resolution latent noise.
    - `src_jax/` pins `diffuse_nnx` at commit `023afd23c7b62a8cdb00e840b36a4ab8fc970bba` and bootstraps it into `~/.cache/rae_jax/diffuse_nnx` on first run.
 
@@ -230,7 +231,8 @@ Stage 2 training now logs the following namespaces:
   (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), together
   with duration/batch counters for each validation pass.
 - `checkpoint/*`: checkpoint save step.
-- `samples/ema`: EMA preview images logged at the training step.
+- `network_samples`: current online-model preview images logged at the training step.
+- `ema_network_samples`: EMA preview images logged at the training step.
 
 To enable online validation loss, add an optional `eval` block to the Stage 2 training config:
 
@@ -256,6 +258,10 @@ eval:
 This XLA branch runs validation loss on TPU inside the training loop. Optional FID
 evaluation is also available at eval checkpoints by sampling on TPU and computing
 Inception features on the host CPU or GPU.
+
+On the JAX path, the default `FID-4K (cfg=...)` series follows the EMA model.
+Setting `fid_eval_model: true` adds separate `FID-4K/model (cfg=...)` metrics
+for the live online model without changing the default EMA series.
 
 ### JAX / NNX Compatibility Layer
 

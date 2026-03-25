@@ -127,6 +127,10 @@ khiển held-out validation loop trong \texttt{src\_jax/train.py}. Với
 \texttt{fid\_ref}, nên ưu tiên file \texttt{.pkl}/\texttt{.pickle} được build
 bởi \texttt{src\_jax/build\_fid\_stats.py}; nếu đưa file \texttt{.npz} cũ vào,
 adapter vẫn tự chuyển nó sang định dạng pickle mà backend NNX hiểu được.
+Trên đường JAX, metric \texttt{FID-4K (cfg=...)} mặc định chấm EMA; nếu bật
+\texttt{fid\_eval\_model}, adapter sẽ log thêm
+\texttt{FID-4K/model (cfg=...)} cho online model mà không thay metric EMA mặc
+định.
 
 \subsection{Override từ CLI}
 

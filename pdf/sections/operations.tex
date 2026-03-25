@@ -107,6 +107,9 @@ python3 src_jax/train.py \
   \item FID trên đường JAX nên dùng reference stats build bởi
   \texttt{src\_jax/build\_fid\_stats.py} để cùng detector với backend; nếu cần,
   adapter vẫn chuyển \texttt{.npz} cũ sang pickle nội bộ.
+  \item Online FID ở JAX mặc định chấm EMA. Nếu cần đối chiếu với model hiện
+  thời, bật \texttt{eval.fid\_eval\_model=true} để log thêm metric
+  \texttt{FID-4K/model (cfg=...)} bên cạnh series EMA mặc định.
   \item Nếu chỉ cần inference Stage 1 ở JAX, dùng \texttt{src\_jax/stage1\_sample.py}.
   \item Nếu cần stat Stage 1 hoặc reconstruction cả thư mục ở JAX, dùng
   \texttt{src\_jax/build\_stage1\_stats.py} và \texttt{src\_jax/reconstruct\_folder.py}.
@@ -121,7 +124,8 @@ python3 src_jax/train.py \
   reference stats sang detector backend-native của JAX, đồng thời cũng giữ các
   bước JAX trong \texttt{.venv} riêng qua \texttt{uv run}, tự xóa cờ
   executable-stack mà Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra
-  \texttt{jax}/TPU bằng tiến trình Python mới.
+  \texttt{jax}/TPU bằng tiến trình Python mới. Notebook này cũng đã bỏ override
+  chẩn đoán \texttt{ema\_decay=0.99}, nên mặc định quay lại EMA chuẩn của config.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.
 \end{itemize}

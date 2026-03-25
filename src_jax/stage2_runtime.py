@@ -74,6 +74,70 @@ def _patch_backend_metric_writer_for_kaggle(trainer: Any) -> Any | None:
     return original_create_default_writer
 
 
+def _log_named_fid_scores(
+    wandb_utils: Any,
+    fid_scores: dict[int, float],
+    *,
+    guidance_scale: float,
+    step: int,
+    tag: str,
+) -> None:
+    if not fid_scores:
+        return
+    payload: dict[str, float | int] = {"train_step": int(step)}
+    for num_samples, fid_value in fid_scores.items():
+        payload[f"FID-{num_samples // 1000}K/{tag} (cfg={guidance_scale})"] = float(fid_value)
+    wandb_utils.log(payload)
+
+
+def _calculate_backend_fid(
+    trainer: Any,
+    config: Any,
+    dataset: Any,
+    sampler: Any,
+    generator: Any,
+    encoder: Any,
+    guidance_scale: float,
+    sample_sizes: Any,
+    step: int,
+    mesh: Any,
+    *,
+    tag: str | None = None,
+) -> dict[int, float]:
+    wandb_utils = trainer.wandb_utils
+    original_log = wandb_utils.log
+
+    if tag is not None:
+        wandb_utils.log = lambda *_args, **_kwargs: None
+
+    try:
+        fid_scores = trainer.fid.calculate_fid(
+            config,
+            dataset,
+            sampler,
+            generator,
+            encoder,
+            guidance_scale,
+            None,
+            sample_sizes,
+            step,
+            mesh=mesh,
+        )
+    finally:
+        if tag is not None:
+            wandb_utils.log = original_log
+
+    if tag is not None:
+        _log_named_fid_scores(
+            wandb_utils,
+            fid_scores,
+            guidance_scale=guidance_scale,
+            step=step,
+            tag=tag,
+        )
+    return fid_scores
+
+
 def _build_backend_eval_dataset(trainer: Any, config: Any) -> Any | None:
     eval_data_dir = config.eval.get("data_dir")
     if not eval_data_dir:
@@ -332,18 +396,32 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
                 config.eval.all_guidance_scales,
                 config.eval.all_eval_samples_nums,
             ):
-                trainer.fid.calculate_fid(
+                _calculate_backend_fid(
+                    trainer,
                     config,
                     dataset,
                     sampler,
                     ema.ema,
                     encoder,
                     guidance_scale,
-                    None,
                     sample_sizes,
                     step,
-                    mesh=mesh,
+                    mesh,
                 )
+                if config.eval.get("fid_eval_model", False):
+                    _calculate_backend_fid(
+                        trainer,
+                        config,
+                        dataset,
+                        sampler,
+                        model,
+                        encoder,
+                        guidance_scale,
+                        sample_sizes,
+                        step,
+                        mesh,
+                        tag="model",
+                    )
 
         if config.standalone_eval:
             return
@@ -465,18 +543,38 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
                     )
                     if time_for_fid:
                         trainer.nnx.update(ema, ema_state)
-                        trainer.fid.calculate_fid(
+                        _calculate_backend_fid(
+                            trainer,
                             config,
                             dataset,
                             sampler,
                             ema.ema,
                             encoder,
                             guidance_scale,
-                            None,
                             sample_sizes,
                             step,
-                            mesh=mesh,
+                            mesh,
                         )
+                        if config.eval.get("fid_eval_model", False):
+                            trainer.nnx.update(optimizer, state)
+                            model = (
+                                optimizer.model.interface
+                                if hasattr(optimizer.model, "interface")
+                                else optimizer.model
+                            )
+                            _calculate_backend_fid(
+                                trainer,
+                                config,
+                                dataset,
+                                sampler,
+                                model,
+                                encoder,
+                                guidance_scale,
+                                sample_sizes,
+                                step,
+                                mesh,
+                                tag="model",
+                            )
 
             if (step + 1) % config.save_every_steps == 0 or step + 1 == config.total_steps:
                 trainer.nnx.update(ema, ema_state)

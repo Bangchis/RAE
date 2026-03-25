@@ -148,6 +148,10 @@ mức thấp. Nó dựa vào backend NNX để:
   \item mở rộng sang nhiều process JAX nếu môi trường đã cấu hình phù hợp.
 \end{itemize}
 
+Repo cũng vá backend này để EMA khởi tạo từ bản copy của model hiện thời thay vì
+một cây tham số toàn số 0. Nhờ vậy \texttt{ema\_network\_samples} và online FID
+không còn bắt đầu từ một EMA cold-start sai ngay từ step đầu.
+
 \subsection{Checkpoint và tương thích trọng số}
 
 Một điểm quan trọng của nhánh JAX là vẫn tận dụng được checkpoint cũ:

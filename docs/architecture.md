@@ -14,7 +14,8 @@ The XLA branch focuses on TPU execution for Stage 2 training and sampling, with
 optional host-side FID scoring. The `jax` branch also adds a thin JAX/NNX
 compatibility layer under `src_jax/` that maps the repository's existing YAML
 schema into a pinned `diffuse_nnx` backend, including backend-native FID
-reference building and held-out validation loss.
+reference building, held-out validation loss, and a compatibility patch that
+keeps backend EMA initialization aligned with the live model weights.
 
 ## End-to-End Data Flow
 
@@ -142,7 +143,7 @@ The JAX path is intentionally kept thin:
   by NNX
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
   training, checkpoint loading, sampling, guidance wiring, JAX validation-loss
-  integration, and FID glue
+  integration, and FID glue for both EMA and optional online-model diagnostics
 - [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
   shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
 - [src_jax/hf_utils.py](../src_jax/hf_utils.py): Hugging Face upload

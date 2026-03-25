@@ -311,7 +311,7 @@ duration/batch counters. Set `eval_model: true` to also log `eval/model_loss`.
 
 ```yaml
 eval:
-  fid_ref: /path/to/reference_stats.npz
+  fid_ref: /path/to/reference_stats.pkl
   fid_every: 25000
   fid_num_samples: 4096
   fid_per_proc_batch_size: 4
@@ -337,6 +337,11 @@ Meaning:
 - `fid_label_sampling`: `equal` or `random`
 - `fid_eval_model`: also score the online model, not only EMA
 
+On the JAX path, the default `FID-4K (cfg=...)` series follows EMA. When
+`fid_eval_model: true`, `src_jax/train.py` also logs a separate
+`FID-4K/model (cfg=...)` series for the online model while keeping the default
+EMA metric unchanged.
+
 ## Example Stage 2 Training Config Skeleton
 
 ```yaml
@@ -360,7 +365,7 @@ training:
 eval:
   data_path: data/imagenet/val/
   eval_every: 5000
-  fid_ref: data/imagenet/reference_stats.npz
+  fid_ref: data/imagenet/reference_stats.pkl
   fid_every: 25000
   fid_num_samples: 4096
   fid_device: cpu

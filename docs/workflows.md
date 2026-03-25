@@ -35,6 +35,10 @@ from `transformers` subpackages, so use `transformers==4.57.1` on this path.
 The same patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage 1
 path does not need that package unless you actually use backend code that pulls
 assets from GCS.
+The bootstrap patch also fixes the backend EMA initialization so the EMA starts
+from a copy of the live model instead of an all-zero parameter tree. Existing
+Orbax checkpoints keep the EMA state they already saved, so use a fresh run if
+you need the corrected EMA trajectory end to end.
 The adapter also derives the Stage-1 latent downsample factor from
 `misc.latent_size`, so backend preview sampling and FID stay in latent space
 instead of allocating image-resolution latent noise.
@@ -211,7 +215,8 @@ Current Stage 2 namespaces:
 - `train/*`
 - `eval/*`
 - `checkpoint/*`
-- `samples/ema`
+- `network_samples`
+- `ema_network_samples`
 - `sample/duration_sec`
 
 Only the master rank initializes and logs to wandb.
@@ -250,7 +255,7 @@ Config:
 
 ```yaml
 eval:
-  fid_ref: /path/to/reference_stats.npz
+  fid_ref: /path/to/reference_stats.pkl
   fid_every: 25000
   fid_num_samples: 4096
   fid_per_proc_batch_size: 4
@@ -272,13 +277,20 @@ eval:
 - `fid_label_sampling`: `equal` or `random`
 - `fid_eval_model`: also score the non-EMA model
 
+Behavior on the JAX path:
+
+- the default `FID-4K (cfg=...)` series measures EMA
+- `fid_eval_model: true` adds `FID-4K/model (cfg=...)` for the live model
+- `network_samples` and `ema_network_samples` therefore no longer refer to the
+  same weights once EMA starts diverging from the online model
+
 ### Recommended CPU-Only Starting Point
 
 For a TPU VM with a strong CPU host and no GPU:
 
 ```yaml
 eval:
-  fid_ref: /path/to/reference_stats.npz
+  fid_ref: /path/to/reference_stats.pkl
   fid_every: 25000
   fid_num_samples: 4096
   fid_per_proc_batch_size: 4

@@ -111,6 +111,21 @@ def _apply_backend_compat_patches(backend_dir: Path) -> None:
         ),
     )
 
+    ema_path = backend_dir / "utils" / "ema.py"
+    _patch_backend_file(
+        ema_path,
+        (
+            "        self.ema = copy.deepcopy(net)\n"
+            "        ema_state = jax.tree.map(lambda x: jnp.zeros_like(x), nnx.state(net, nnx.Param))\n"
+            "        nnx.update(self.ema, ema_state)\n"
+            "        self.ema.eval()\n"
+        ),
+        (
+            "        self.ema = copy.deepcopy(net)\n"
+            "        self.ema.eval()\n"
+        ),
+    )
+
 
 def resolve_backend_dir(explicit_dir: str | None = None) -> Path:
     raw = explicit_dir or os.environ.get(BACKEND_ENV_VAR)
