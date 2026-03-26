@@ -34,7 +34,8 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
 - [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow, using a dedicated `uv` virtualenv plus `uv run`
-- [raes-jax-celeba-kaggle-tpuv5e8.ipynb](raes-jax-celeba-kaggle-tpuv5e8.ipynb): Kaggle notebook tuned for `TPU v5e-8` with a dedicated `uv` virtualenv, an automatic `jaxlib` executable-stack fix for Kaggle, host-side CPU FID, and a fresh-process TPU sanity check
+- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): Kaggle notebook tuned for `TPU v5e-8` for the `DiTDH-S` CelebA variant, with a dedicated `uv` virtualenv, an automatic `jaxlib` executable-stack fix for Kaggle, host-side CPU FID, a fresh-process TPU sanity check, and a default Stage 2 checkpoint cadence of `210000` steps
+- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling Kaggle `TPU v5e-8` notebook that keeps the same flow but swaps the Stage 2 CelebA config from `DiTDH-S` to `DiTDH-B`, also keeping the default checkpoint cadence at `210000` steps
 
 ## Environment
 
@@ -344,7 +345,8 @@ Key behavior:
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
 - `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but keeps package-backed steps inside a dedicated `uv` virtualenv via `uv run` instead of relying on the notebook kernel interpreter.
-- `raes-jax-celeba-kaggle-tpuv5e8.ipynb` copies that flow for `TPU v5e-8`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, and builds the JAX `fid_ref` with the same backend detector used during online FID.
+- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA variant explicitly to `DiTDH-S`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
+- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the `DiTDH-B` Stage 2 variant, reusing the same Kaggle/JAX flow while writing a `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, naming runs/projects accordingly, and keeping the same `210000`-step checkpoint cadence.
 
 Current limitation:
 

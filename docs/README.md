@@ -10,7 +10,8 @@ and the lightweight JAX/NNX adapter shipped in `src_jax/`.
 - [Config Reference](./config-reference.md): YAML schema and which scripts consume each block.
 - [PDF Manual](../pdf/main.pdf): detailed Vietnamese PDF for architecture, workflows, config, and operations.
 - [Kaggle Notebook](../raes-jax-celeba-kaggle.ipynb): end-to-end CelebA notebook for the standard JAX branch flow, using a dedicated `uv` virtualenv plus `uv run`.
-- [Kaggle TPU Notebook](../raes-jax-celeba-kaggle-tpuv5e8.ipynb): CelebA notebook tuned for Kaggle `TPU v5e-8`, also routed through a dedicated `uv` virtualenv plus `uv run`, with an automatic `jaxlib` executable-stack fix and host-side CPU FID/stat work.
+- [Kaggle TPU Notebook (DiTDH-S)](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): CelebA notebook tuned for Kaggle `TPU v5e-8` for the `DiTDH-S` variant, also routed through a dedicated `uv` virtualenv plus `uv run`, with an automatic `jaxlib` executable-stack fix, host-side CPU FID/stat work, and a default `210000`-step checkpoint cadence.
+- [Kaggle TPU Notebook (DiTDH-B)](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling `TPU v5e-8` notebook that keeps the same JAX/Kaggle flow but swaps the Stage 2 CelebA config to `DiTDH-B`, also using the `210000`-step checkpoint cadence.
 
 ## Recommended Reading Order
 

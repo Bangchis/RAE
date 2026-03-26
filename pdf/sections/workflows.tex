@@ -272,9 +272,18 @@ Kaggle:
 \end{itemize}
 
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
-\texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}. Bản này đổi sang đường cài
-\texttt{jax[tpu]}, giữ các bước phụ thuộc package trong \texttt{.venv} riêng
-qua \texttt{uv run}, tự xóa cờ executable-stack mà Kaggle có thể chặn trên
-\texttt{jaxlib}, chạy bước xác nhận TPU trong một tiến trình Python mới, giữ
-Stage 1 và Stage 2 ở TPU, đồng thời build \texttt{fid\_ref} bằng đúng detector
-backend dùng cho online FID.
+\texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb}. Bản này cố định biến thể
+CelebA Stage 2 là \texttt{DiTDH-S}, đổi sang đường cài \texttt{jax[tpu]}, giữ
+các bước phụ thuộc package trong \texttt{.venv} riêng qua \texttt{uv run}, tự
+xóa cờ executable-stack mà Kaggle có thể chặn trên \texttt{jaxlib}, chạy bước
+xác nhận TPU trong một tiến trình Python mới, giữ Stage 1 và Stage 2 ở TPU,
+đồng thời build \texttt{fid\_ref} bằng đúng detector backend dùng cho online
+FID, và giữ cadence checkpoint mặc định ở mốc \texttt{210000} step.
+
+Nếu muốn giữ nguyên flow đó nhưng đổi Stage 2 sang biến thể \texttt{DiTDH-B},
+dùng notebook \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb}. Notebook
+này ghi config CelebA thành
+\texttt{CelebA256\_DiTDH-B\_DINOv2-B\_jax\_tpuv5e8.yaml}, đổi encoder-side
+\texttt{hidden\_size} sang \texttt{768}, đổi \texttt{num\_heads} sang
+\texttt{12}, đặt tên run/project mặc định theo biến thể \texttt{DiTDH-B}, và
+giữ cùng cadence checkpoint \texttt{210000} step.

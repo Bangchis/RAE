@@ -120,12 +120,19 @@ python3 src_jax/train.py \
   \texttt{.venv} riêng bằng \texttt{uv}, rồi chạy các bước phụ thuộc package qua
   \texttt{uv run}.
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8.ipynb}; bản này chuyển FID và build
-  reference stats sang detector backend-native của JAX, đồng thời cũng giữ các
-  bước JAX trong \texttt{.venv} riêng qua \texttt{uv run}, tự xóa cờ
-  executable-stack mà Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra
-  \texttt{jax}/TPU bằng tiến trình Python mới. Notebook này cũng đã bỏ override
-  chẩn đoán \texttt{ema\_decay=0.99}, nên mặc định quay lại EMA chuẩn của config.
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb}; bản này cố định biến
+  thể Stage 2 là \texttt{DiTDH-S}, chuyển FID và build reference stats sang
+  detector backend-native của JAX, đồng thời cũng giữ các bước JAX trong
+  \texttt{.venv} riêng qua \texttt{uv run}, tự xóa cờ executable-stack mà
+  Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra \texttt{jax}/TPU bằng
+  tiến trình Python mới. Notebook này cũng đã bỏ override chẩn đoán
+  \texttt{ema\_decay=0.99} và giữ mốc checkpoint mặc định ở \texttt{210000}
+  step, nên mặc định quay lại EMA chuẩn của config.
+  \item Nếu cần cùng flow Kaggle TPU đó nhưng muốn train biến thể
+  \texttt{DiTDH-B}, dùng notebook
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb}. Bản này giữ toàn bộ
+  fix Kaggle/JAX hiện có, chỉ đổi phần Stage 2 sang config \texttt{DiTDH-B},
+  và dùng cùng cadence checkpoint \texttt{210000} step.
   \item Nếu cần huấn luyện Stage 1 kiểu GAN đầy đủ, hiện vẫn phải xem đây là
   phần chưa được JAX hóa trong branch này.
 \end{itemize}

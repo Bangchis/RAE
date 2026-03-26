@@ -229,6 +229,8 @@ src_jax/
   stage1_sample.py
   push_hf.py
 raes-jax-celeba-kaggle.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb
 ```
 
 ## Experiment Artifacts

@@ -424,12 +424,22 @@ want the standard Kaggle-style workflow end to end:
 - write a CelebA Stage 2 config and launch `src_jax/train.py`
 
 For Kaggle `TPU v5e-8`, use
-[../raes-jax-celeba-kaggle-tpuv5e8.ipynb](../raes-jax-celeba-kaggle-tpuv5e8.ipynb).
-That copy switches installation to `jax[tpu]`, keeps the package-backed steps
-inside a dedicated `uv` virtualenv via `uv run`, clears the `jaxlib`
-executable-stack flag that Kaggle can reject before each JAX import, runs the
-TPU device check in a fresh Python process, keeps Stage 1 and Stage 2 on TPU,
-and builds the JAX `fid_ref` with the same backend detector used by online FID.
+[../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb).
+That copy fixes the Stage 2 CelebA variant to `DiTDH-S`, switches installation
+to `jax[tpu]`, keeps the package-backed steps inside a dedicated `uv`
+virtualenv via `uv run`, clears the `jaxlib` executable-stack flag that Kaggle
+can reject before each JAX import, runs the TPU device check in a fresh Python
+process, keeps Stage 1 and Stage 2 on TPU, builds the JAX `fid_ref` with the
+same backend detector used by online FID, and keeps the default checkpoint
+cadence at `210000` steps.
+
+If you want the same Kaggle TPU flow but with a `DiTDH-B` Stage 2 setup, use
+[../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb).
+That notebook keeps the same JAX/TPU workarounds and data prep, but writes the
+CelebA Stage 2 config as `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
+switches the encoder-side transformer width to `768`, renames the default wandb
+project/run to the `DiTDH-B` variant, and keeps the same `210000`-step
+checkpoint cadence.
 
 ## 9. Upload a JAX Run to Hugging Face
 
