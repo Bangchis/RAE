@@ -231,6 +231,7 @@ src_jax/
 raes-jax-celeba-kaggle.ipynb
 raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb
 raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb
 ```
 
 ## Experiment Artifacts
