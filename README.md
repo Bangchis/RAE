@@ -33,9 +33,10 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/workflows.md](docs/workflows.md): practical runbooks for XLA and JAX/NNX training, sampling, and FID
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
-- [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow, using a dedicated `uv` virtualenv plus `uv run`
-- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): Kaggle notebook tuned for `TPU v5e-8` for the `DiTDH-S` CelebA variant, with a dedicated `uv` virtualenv, an automatic `jaxlib` executable-stack fix for Kaggle, host-side CPU FID, a fresh-process TPU sanity check, and a default Stage 2 checkpoint cadence of `210000` steps
-- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling Kaggle `TPU v5e-8` notebook that keeps the same flow but swaps the Stage 2 CelebA config from `DiTDH-S` to `DiTDH-B`, also keeping the default checkpoint cadence at `210000` steps
+- [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow, syncing repo dependencies into `/tmp/.venv` via `uv sync` and running package-backed steps through `uv run`
+- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): Kaggle notebook tuned for `TPU v5e-8` for the `DiTDH-S` CelebA variant, syncing repo dependencies into `/tmp/.venv` via `uv sync`, applying the automatic `jaxlib` executable-stack fix for Kaggle, keeping host-side CPU FID, and defaulting to a Stage 2 checkpoint cadence of `210000` steps
+- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling Kaggle `TPU v5e-8` notebook that keeps the same `/tmp/.venv` + `uv sync` flow but swaps the Stage 2 CelebA config from `DiTDH-S` to `DiTDH-B`, also keeping the default checkpoint cadence at `210000` steps
+- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb): minimal Kaggle `TPU v5e-8` resume-only notebook for the `DiTDH-B` variant, starting by unzipping the previous notebook `_output_.zip` back into `/kaggle/working`, then rebuilding only the `uv` environment and auto-detecting both the newest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` Orbax run directory and its newest `checkpoint_*`
 
 ## Environment
 
@@ -63,6 +64,7 @@ Use the docs folder as the detailed guide for this branch:
    Notes:
    - On TPU, replace `jax[cuda12]` with the TPU wheel flow you already use in your environment.
    - If Kaggle TPU rejects `jaxlib/xla_extension.so` with `cannot enable executable stack`, run `uv run python scripts/clear_elf_execstack.py --package jaxlib` once inside the same environment.
+   - The JAX Kaggle notebooks now set `UV_PROJECT_ENVIRONMENT=/tmp/.venv`, `UV_CACHE_DIR=/tmp/uv-cache`, and use `uv sync -q` against the repo `pyproject.toml` before running the package-backed cells.
    - This repo patches the pinned `diffuse_nnx` checkout to import Dinov2 models from `transformers` subpackages, and the supported version for that path is `transformers==4.57.1`.
    - The same backend patch also lazy-loads `google-cloud-storage`, so the RAE/DINO Stage-1 path does not need that package unless you actually use backend components that fetch assets from GCS.
    - The backend bootstrap patch also fixes `diffuse_nnx` EMA initialization so the EMA starts from a copy of the current model instead of an all-zero parameter tree. Old Orbax checkpoints keep the EMA state they already saved, so start a fresh run if you need the corrected EMA trajectory.
@@ -344,9 +346,10 @@ Key behavior:
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
-- `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but keeps package-backed steps inside a dedicated `uv` virtualenv via `uv run` instead of relying on the notebook kernel interpreter.
-- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA variant explicitly to `DiTDH-S`, switches the install path to `jax[tpu]`, clears the `jaxlib` executable-stack flag that Kaggle can reject, keeps the heavy steps inside a dedicated `uv` virtualenv via `uv run`, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
+- `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but now points `UV_PROJECT_ENVIRONMENT` to `/tmp/.venv`, caches wheels under `/tmp/uv-cache`, runs `uv sync -q` against the repo `pyproject.toml`, and keeps package-backed steps inside `uv run` instead of relying on the notebook kernel interpreter.
+- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA variant explicitly to `DiTDH-S`, syncs the repo dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that Kaggle can reject, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
 - `raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the `DiTDH-B` Stage 2 variant, reusing the same Kaggle/JAX flow while writing a `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, naming runs/projects accordingly, and keeping the same `210000`-step checkpoint cadence.
+- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb` is now a stripped-down resume-only notebook: it first runs the old notebook archive extraction command `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip -d /kaggle/working`, then keeps only the minimal repo check, `uv sync`, Kaggle secret, path sanity check, and `src_jax/train.py --workdir ...` cells needed to locate the newest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` run under `/kaggle/working/results_jax_tpu/` and restore `latest_step()` from that run's newest `checkpoint_<step>/` directory.
 
 Current limitation:
 

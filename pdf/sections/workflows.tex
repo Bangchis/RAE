@@ -24,6 +24,10 @@ uv pip install ml-collections clu absl-py etils huggingface_hub
 
 Lần chạy JAX đầu tiên sẽ tự bootstrap backend \texttt{diffuse\_nnx} vào thư mục
 \texttt{\~{}/.cache/rae\_jax/diffuse\_nnx}.
+Các notebook JAX trên Kaggle không còn lặp lại từng lệnh \texttt{uv pip install}
+này; chúng đặt \texttt{UV\_PROJECT\_ENVIRONMENT=/tmp/.venv},
+\texttt{UV\_CACHE\_DIR=/tmp/uv-cache}, rồi chạy \texttt{uv sync -q} theo
+\texttt{pyproject.toml} của repo trước các cell phụ thuộc package.
 Repo này tự vá backend \texttt{diffuse\_nnx} để import các model Dinov2 từ
 subpackage của \texttt{transformers}, nên nên dùng
 \texttt{transformers==4.57.1} cho đường này.
@@ -263,7 +267,8 @@ Kaggle:
 
 \begin{itemize}[leftmargin=1.5em]
   \item clone repo và checkout branch \texttt{jax};
-  \item tạo \texttt{.venv} riêng bằng \texttt{uv};
+  \item đặt \texttt{UV\_PROJECT\_ENVIRONMENT=/tmp/.venv} và \texttt{UV\_CACHE\_DIR=/tmp/uv-cache};
+  \item chạy \texttt{uv sync -q} từ root của repo;
   \item chạy các bước phụ thuộc package qua \texttt{uv run};
   \item chuyển CelebA thành \texttt{ImageFolder} \texttt{256x256};
   \item tạo bootstrap identity stat, build latent stat cho Stage 1;
@@ -273,12 +278,12 @@ Kaggle:
 
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb}. Bản này cố định biến thể
-CelebA Stage 2 là \texttt{DiTDH-S}, đổi sang đường cài \texttt{jax[tpu]}, giữ
-các bước phụ thuộc package trong \texttt{.venv} riêng qua \texttt{uv run}, tự
-xóa cờ executable-stack mà Kaggle có thể chặn trên \texttt{jaxlib}, chạy bước
-xác nhận TPU trong một tiến trình Python mới, giữ Stage 1 và Stage 2 ở TPU,
-đồng thời build \texttt{fid\_ref} bằng đúng detector backend dùng cho online
-FID, và giữ cadence checkpoint mặc định ở mốc \texttt{210000} step.
+CelebA Stage 2 là \texttt{DiTDH-S}, sync dependency của repo vào
+\texttt{/tmp/.venv}, tự xóa cờ executable-stack mà Kaggle có thể chặn trên
+\texttt{jaxlib}, chạy bước xác nhận TPU trong một tiến trình Python mới, giữ
+Stage 1 và Stage 2 ở TPU, đồng thời build \texttt{fid\_ref} bằng đúng detector
+backend dùng cho online FID, và giữ cadence checkpoint mặc định ở mốc
+\texttt{210000} step.
 
 Nếu muốn giữ nguyên flow đó nhưng đổi Stage 2 sang biến thể \texttt{DiTDH-B},
 dùng notebook \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb}. Notebook
@@ -287,3 +292,17 @@ này ghi config CelebA thành
 \texttt{hidden\_size} sang \texttt{768}, đổi \texttt{num\_heads} sang
 \texttt{12}, đặt tên run/project mặc định theo biến thể \texttt{DiTDH-B}, và
 giữ cùng cadence checkpoint \texttt{210000} step.
+
+Nếu đã có thư mục run Orbax của \texttt{DiTDH-B} và cần train tiếp, dùng
+notebook \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb}. Notebook
+này đã được rút xuống thành bản resume-only cho trường hợp bắt đầu từ output
+archive của notebook cũ: cell đầu chạy lệnh \texttt{unzip -o
+/kaggle/input/notebooks/kieuhongquan/rae-jax/\_output\_.zip -d
+/kaggle/working}, sau đó mới kiểm tra repo đã có sẵn, chạy \texttt{uv sync},
+fix \texttt{jaxlib}, lấy secret wandb, kiểm tra path, rồi tự tìm thư mục
+\texttt{CelebA256\_DiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
+\texttt{/kaggle/working/results\_jax\_tpu/}, rồi mới tìm thư mục
+\texttt{checkpoint\_<step>/} mới nhất trong workdir đó trước khi truyền
+\texttt{--workdir} vào \texttt{src\_jax/train.py}. Runtime tiếp tục restore
+\texttt{latest\_step()} từ checkpoint mới nhất, nên notebook này không còn
+hardcode cả thư mục run có timestamp lẫn \texttt{checkpoint\_100000}.
