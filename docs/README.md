@@ -10,9 +10,9 @@ and the lightweight JAX/NNX adapter shipped in `src_jax/`.
 - [Config Reference](./config-reference.md): YAML schema and which scripts consume each block.
 - [PDF Manual](../pdf/main.pdf): detailed Vietnamese PDF for architecture, workflows, config, and operations.
 - [Kaggle Notebook](../raes-jax-celeba-kaggle.ipynb): end-to-end CelebA notebook for the standard JAX branch flow, syncing repo dependencies into `/tmp/.venv` via `uv sync` and running package-backed steps through `uv run`.
-- [Kaggle TPU Notebook (DiTDH-S)](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): CelebA notebook tuned for Kaggle `TPU v5e-8` for the `DiTDH-S` variant, also syncing repo dependencies into `/tmp/.venv` via `uv sync`, with an automatic `jaxlib` executable-stack fix, host-side CPU FID/stat work, and a default `210000`-step checkpoint cadence.
-- [Kaggle TPU Notebook (DiTDH-B)](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling `TPU v5e-8` notebook that keeps the same `/tmp/.venv` + `uv sync` JAX/Kaggle flow but swaps the Stage 2 CelebA config to `DiTDH-B`, also using the `210000`-step checkpoint cadence.
-- [Kaggle TPU Notebook (DiTDH-B Resume)](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb): minimal `TPU v5e-8` resume-only notebook that starts by unzipping the previous notebook `_output_.zip` back into `/kaggle/working`, then rebuilds only the `uv` environment and auto-detects the latest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` run plus its latest `checkpoint_<step>`.
+- [Kaggle TPU Notebook (SiTDH-S)](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb): CelebA notebook tuned for Kaggle `TPU v5e-8` for the `SiTDH-S` variant, also syncing repo dependencies into `/tmp/.venv` via `uv sync`, with an automatic `jaxlib` executable-stack fix, host-side CPU FID/stat work, and a default `210000`-step checkpoint cadence.
+- [Kaggle TPU Notebook (SiTDH-B)](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb): sibling `TPU v5e-8` notebook that keeps the same `/tmp/.venv` + `uv sync` JAX/Kaggle flow but swaps the Stage 2 CelebA config to `SiTDH-B`, also using the `210000`-step checkpoint cadence.
+- [Kaggle TPU Notebook (SiTDH-B Resume)](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb): minimal `TPU v5e-8` resume-only notebook that starts by unzipping the previous notebook `_output_.zip` back into `/kaggle/working`, then rebuilds only the `uv` environment and auto-detects the latest `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run plus its latest `checkpoint_<step>`.
 
 ## Recommended Reading Order
 

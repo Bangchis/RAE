@@ -1,5 +1,6 @@
 from .models.lightningDiT import LightningDiT
 from .models.DDT import DiTwDDTHead
+from .models.SiT import SiTDH
 from typing import Callable, Dict, Optional, Type, Union
 from typing import Protocol, Any, runtime_checkable
 
@@ -82,7 +83,6 @@ class Stage2ModelProtocol(Protocol):
 #         num_classes=1000,
 #     )
 #     return model
-
 
 
 

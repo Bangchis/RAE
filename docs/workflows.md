@@ -118,7 +118,7 @@ Main entrypoint:
 
 ```bash
 python src/train.py \
-  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --config configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml \
   --data-path <imagenet_train_split> \
   --results-dir results \
   --image-size 256 \
@@ -171,7 +171,7 @@ Main JAX entrypoint:
 
 ```bash
 python3 src_jax/train.py \
-  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --config configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml \
   --data-path <imagenet_train_root> \
   --results-dir results_jax \
   --precision bf16 \
@@ -340,13 +340,16 @@ python src/sample_ddp.py \
 
 ```bash
 python3 src_jax/sample.py \
-  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B_AG.yaml \
+  --config configs/stage2/sampling/ImageNet256/SiTDHXL-DINOv2-B_AG.yaml \
   --class-labels 207,360 \
   --output sample_jax.png
 ```
 
 Notes:
 
+- On this branch, the checked-in JAX sampling configs are templates; set
+  `stage_2.ckpt` and `guidance.guidance_model.ckpt` to SiTDH-compatible weights
+  before running sampling.
 - `guidance.method=cfg` uses the same model for conditional and unconditional
   passes.
 - `guidance.method=autoguidance` loads `guidance.guidance_model` as the guide
@@ -356,7 +359,7 @@ Notes:
 
 ```bash
 python3 src_jax/sample_ddp.py \
-  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B.yaml \
+  --config configs/stage2/sampling/ImageNet256/SiTDHXL-DINOv2-B.yaml \
   --sample-dir samples_jax \
   --num-samples 50000 \
   --label-sampling equal \
@@ -418,7 +421,7 @@ building FID references or comparing Stage 1 decoder changes.
 Use [../raes-jax-celeba-kaggle.ipynb](../raes-jax-celeba-kaggle.ipynb) when you
 want the standard Kaggle-style workflow end to end:
 
-- clone the repo and checkout `jax`
+- clone the repo and checkout `jax-sit-dh`
 - set `UV_PROJECT_ENVIRONMENT=/tmp/.venv` and `UV_CACHE_DIR=/tmp/uv-cache`
 - run `uv sync -q` from the repo root
 - run package-backed data/stat/reconstruction/train steps through `uv run`
@@ -429,25 +432,25 @@ want the standard Kaggle-style workflow end to end:
 - write a CelebA Stage 2 config and launch `src_jax/train.py`
 
 For Kaggle `TPU v5e-8`, use
-[../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb).
-That copy fixes the Stage 2 CelebA variant to `DiTDH-S`, syncs the repo
+[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb).
+That copy fixes the Stage 2 CelebA variant to `SiTDH-S`, syncs the repo
 dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that
 Kaggle can reject before each JAX import, runs the TPU device check in a fresh
 Python process, keeps Stage 1 and Stage 2 on TPU, builds the JAX `fid_ref` with
 the same backend detector used by online FID, and keeps the default checkpoint
 cadence at `210000` steps.
 
-If you want the same Kaggle TPU flow but with a `DiTDH-B` Stage 2 setup, use
-[../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb).
+If you want the same Kaggle TPU flow but with a `SiTDH-B` Stage 2 setup, use
+[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb).
 That notebook keeps the same JAX/TPU workarounds and data prep, but writes the
-CelebA Stage 2 config as `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
+CelebA Stage 2 config as `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
 switches the encoder-side transformer width to `768`, renames the default wandb
-project/run to the `DiTDH-B` variant, and keeps the same `210000`-step
+project/run to the `SiTDH-B` variant, and keeps the same `210000`-step
 checkpoint cadence.
 
-If you already have an Orbax run directory for `DiTDH-B` and want to continue
+If you already have an Orbax run directory for `SiTDH-B` and want to continue
 training from its latest checkpoint, use
-[../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb).
+[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb).
 That notebook is intentionally stripped down for the common Kaggle resume case
 where you start from the archived output of the previous notebook. Its first
 cell runs `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip
@@ -455,7 +458,7 @@ cell runs `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip
 runs `uv sync`, applies the `jaxlib` executable-stack fix, loads the Kaggle
 secret, runs a path sanity-check for the restored dataset/FID/workdir files,
 and finishes with `src_jax/train.py --workdir ...`. The notebook first locates
-the newest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` run directory under
+the newest `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run directory under
 `/kaggle/working/results_jax_tpu/`, then both the shell pre-check and the
 runtime work from the newest `checkpoint_<step>` directory available under that
 workdir, so the notebook no longer hardcodes either the timestamped run folder

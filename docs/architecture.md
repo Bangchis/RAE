@@ -11,7 +11,7 @@ Representation Autoencoders (RAE):
    sampled latents back into images through the Stage 1 decoder.
 
 The XLA branch focuses on TPU execution for Stage 2 training and sampling, with
-optional host-side FID scoring. The `jax` branch also adds a thin JAX/NNX
+optional host-side FID scoring. The `jax-sit-dh` branch also adds a thin JAX/NNX
 compatibility layer under `src_jax/` that maps the repository's existing YAML
 schema into a pinned `diffuse_nnx` backend, including backend-native FID
 reference building, held-out validation loss, and a compatibility patch that
@@ -52,11 +52,14 @@ Key behavior:
 - `decode(z)` reverses normalization, converts latent maps back to token
   sequences if needed, and reconstructs pixels through the ViT decoder.
 
-### Stage 2: DiT in Latent Space
+### Stage 2: SiT in Latent Space
 
-Implemented primarily in [src/stage2/models/DDT.py](../src/stage2/models/DDT.py).
-
-The main exported model on this branch is `DiTwDDTHead`.
+The branch-default Stage 2 target is [src/stage2/models/SiT.py](../src/stage2/models/SiT.py),
+which exposes `SiTDH` as a repo-facing wrapper over the single-tower
+`LightningDiT` implementation in [src/stage2/models/lightningDiT.py](../src/stage2/models/lightningDiT.py).
+The older DDT implementation in [src/stage2/models/DDT.py](../src/stage2/models/DDT.py)
+remains in the repo as a legacy path, but it is no longer the default Stage 2
+surface on this branch.
 
 Design highlights:
 
@@ -140,7 +143,8 @@ The JAX path is intentionally kept thin:
   `023afd23c7b62a8cdb00e840b36a4ab8fc970bba`
 - [src_jax/config_adapter.py](../src_jax/config_adapter.py):
   translates the repository's OmegaConf YAML into the backend config expected
-  by NNX
+  by NNX, mapping `SiTDH` to the backend `lightning_dit` network while keeping
+  the `sit` training interface
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
   training, checkpoint loading, sampling, guidance wiring, JAX validation-loss
   integration, and FID glue for both EMA and optional online-model diagnostics
@@ -229,10 +233,21 @@ src_jax/
   stage1_sample.py
   push_hf.py
 raes-jax-celeba-kaggle.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb
 ```
+
+## Checkpoint Compatibility
+
+On this branch, `stage_2.ckpt` must already be compatible with the single-tower
+SiTDH/LightningDiT shape.
+
+- PyTorch `.pt` checkpoints are supported when they come from a SiTDH-compatible
+  model definition.
+- Orbax directories are supported when they come from previous SiTDH JAX runs.
+- Legacy DDT checkpoints are not auto-converted on this branch.
+- Stage 1 decoder checkpoints remain reusable on both the PyTorch and JAX paths.
 
 ## Experiment Artifacts
 

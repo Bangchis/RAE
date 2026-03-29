@@ -96,15 +96,15 @@ Typical shape:
 
 ```yaml
 stage_2:
-  target: stage2.models.DDT.DiTwDDTHead
+  target: stage2.models.SiT.SiTDH
   ckpt: null
   params:
     input_size: 16
     patch_size: 1
     in_channels: 768
-    hidden_size: [1152, 2048]
-    depth: [28, 2]
-    num_heads: [16, 16]
+    hidden_size: 1152
+    depth: 28
+    num_heads: 16
     mlp_ratio: 4.0
     class_dropout_prob: 0.1
     num_classes: 1000
@@ -113,7 +113,6 @@ stage_2:
     use_rope: true
     use_rmsnorm: true
     wo_shift: false
-    use_pos_embed: true
 ```
 
 Common fields:
@@ -122,17 +121,19 @@ Common fields:
 - `ckpt`: checkpoint used for sampling or fine-tuning resume
 - `params.input_size`: latent spatial resolution
 - `params.in_channels`: latent channel count
-- `params.hidden_size`: encoder/decoder hidden widths
-- `params.depth`: number of encoder and decoder transformer blocks
-- `params.num_heads`: attention heads per tower
+- `params.hidden_size`: transformer hidden width
+- `params.depth`: number of transformer blocks
+- `params.num_heads`: attention heads per block
 - feature toggles such as `use_rope`, `use_rmsnorm`, and `use_swiglu`
 
 For the JAX adapter:
 
 - `stage_2.ckpt` may be either a PyTorch `.pt` checkpoint or a JAX Orbax
   directory
-- `target` is used only to infer which NNX backbone should be instantiated
-  (`lightning_ddt`, `lightning_dit`, or `dit`)
+- `target` is used only to infer which NNX backbone should be instantiated;
+  branch-owned `SiTDH` targets map to `lightning_dit`
+- legacy DDT targets still map to `lightning_ddt`, but the repo-owned configs
+  on this branch no longer use that path
 
 ## `transport`
 

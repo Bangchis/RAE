@@ -17,7 +17,7 @@ This branch contains:
 
 TorchXLA/TPU:
 * A TPU implementation of RAE and pretrained weights.
-* Sampling of RAE and DiT<sup>DH</sup> on TPU.
+* Sampling of RAE and SiT<sup>DH</sup> on TPU.
 
 JAX/NNX:
 * A lightweight JAX/NNX compatibility layer under `src_jax/`.
@@ -34,9 +34,9 @@ Use the docs folder as the detailed guide for this branch:
 - [docs/config-reference.md](docs/config-reference.md): YAML schema reference
 - [pdf/main.pdf](pdf/main.pdf): detailed Vietnamese PDF for architecture, workflow, config, and operations
 - [raes-jax-celeba-kaggle.ipynb](raes-jax-celeba-kaggle.ipynb): Kaggle notebook for the standard CelebA JAX flow, syncing repo dependencies into `/tmp/.venv` via `uv sync` and running package-backed steps through `uv run`
-- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb): Kaggle notebook tuned for `TPU v5e-8` for the `DiTDH-S` CelebA variant, syncing repo dependencies into `/tmp/.venv` via `uv sync`, applying the automatic `jaxlib` executable-stack fix for Kaggle, keeping host-side CPU FID, and defaulting to a Stage 2 checkpoint cadence of `210000` steps
-- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb): sibling Kaggle `TPU v5e-8` notebook that keeps the same `/tmp/.venv` + `uv sync` flow but swaps the Stage 2 CelebA config from `DiTDH-S` to `DiTDH-B`, also keeping the default checkpoint cadence at `210000` steps
-- [raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb](raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb): minimal Kaggle `TPU v5e-8` resume-only notebook for the `DiTDH-B` variant, starting by unzipping the previous notebook `_output_.zip` back into `/kaggle/working`, then rebuilding only the `uv` environment and auto-detecting both the newest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` Orbax run directory and its newest `checkpoint_*`
+- [raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb](raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb): Kaggle notebook tuned for `TPU v5e-8` for the `SiTDH-S` CelebA variant, syncing repo dependencies into `/tmp/.venv` via `uv sync`, applying the automatic `jaxlib` executable-stack fix for Kaggle, keeping host-side CPU FID, and defaulting to a Stage 2 checkpoint cadence of `210000` steps
+- [raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb](raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb): sibling Kaggle `TPU v5e-8` notebook that keeps the same `/tmp/.venv` + `uv sync` flow but swaps the Stage 2 CelebA config from `SiTDH-S` to `SiTDH-B`, also keeping the default checkpoint cadence at `210000` steps
+- [raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb](raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb): minimal Kaggle `TPU v5e-8` resume-only notebook for the `SiTDH-B` variant, starting by unzipping the previous notebook `_output_.zip` back into `/kaggle/working`, then rebuilding only the `uv` environment and auto-detecting both the newest `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` Orbax run directory and its newest `checkpoint_*`
 
 ## Environment
 
@@ -75,7 +75,7 @@ Use the docs folder as the detailed guide for this branch:
 
 ### Download Pre-trained Models
 
-We release three kind of models: RAE decoders, DiT<sup>DH</sup> diffusion transformers and stats for latent normalization. To download all models at once:
+The upstream asset collection still contains the original RAE decoders, legacy DiT<sup>DH</sup> checkpoints, and latent-normalization stats. This branch switches the default Stage 2 configs to SiT<sup>DH</sup>, so sampling configs expect you to attach fresh SiTDH-compatible checkpoints before use. To download the shared assets:
 
 
 ```bash
@@ -113,7 +113,7 @@ stage_1:
    ckpt: <path_to_ckpt>  
 
 stage_2:
-   target: stage2.models.DDT.DiTwDDTHead
+   target: stage2.models.SiT.SiTDH
    params: { ... }
    ckpt: <path_to_ckpt>  
 
@@ -171,9 +171,8 @@ There is also a training script for training a ViT-XL decoder on DINOv2-B: `conf
 
 #### Stage2
 
-We release our best model, DiT<sup>DH</sup>-XL and it's guidance model on both $256\times 256$ and $512\times 512$, at `configs/stage2/sampling/`.
-
-We also provide training configs for DiT<sup>DH</sup> at `configs/stage2/training/`.
+This branch provides SiTDH config templates for both training and sampling at `configs/stage2/`.
+The checked-in sampling configs intentionally leave `stage_2.ckpt` and `guidance.guidance_model.ckpt` as `null` until you point them at SiTDH-compatible weights.
 
 ## Stage 1: Representation Autoencoder
 
@@ -210,7 +209,7 @@ Train Stage 2 on TPU with:
 
 ```bash
 python src/train.py \
-  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --config configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml \
   --data-path <imagenet_train_split> \
   --results-dir results \
   --image-size 256 \
@@ -268,7 +267,7 @@ for the live online model without changing the default EMA series.
 
 ### JAX / NNX Compatibility Layer
 
-The `jax` branch also ships a thin adapter in `src_jax/` that keeps the current
+This branch also ships a thin adapter in `src_jax/` that keeps the current
 OmegaConf YAML files, but runs Stage 2 through a JAX/NNX backend instead of
 duplicating the entire PyTorch codebase.
 
@@ -276,7 +275,7 @@ Main entrypoints:
 
 ```bash
 python3 src_jax/train.py \
-  --config configs/stage2/training/ImageNet256/DiTDH-XL_DINOv2-B.yaml \
+  --config configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml \
   --data-path <imagenet_train_root> \
   --results-dir results_jax \
   --precision bf16 \
@@ -292,14 +291,14 @@ Kaggle and keeps metric logging on stdout plus wandb.
 
 ```bash
 python3 src_jax/sample.py \
-  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B_AG.yaml \
+  --config configs/stage2/sampling/ImageNet256/SiTDHXL-DINOv2-B_AG.yaml \
   --output sample_jax.png \
   --class-labels 207,360
 ```
 
 ```bash
 python3 src_jax/sample_ddp.py \
-  --config configs/stage2/sampling/ImageNet256/DiTDHXL-DINOv2-B.yaml \
+  --config configs/stage2/sampling/ImageNet256/SiTDHXL-DINOv2-B.yaml \
   --sample-dir samples_jax \
   --num-samples 50000 \
   --label-sampling equal \
@@ -338,7 +337,7 @@ python3 src_jax/push_hf.py \
 Key behavior:
 
 - `src_jax/` accepts the same top-level YAML blocks: `stage_1`, `stage_2`, `transport`, `sampler`, `guidance`, `misc`, `training`, and `eval`.
-- `stage_2.ckpt` can point to the original PyTorch `.pt` checkpoints for inference, or to a JAX Orbax directory for resumed JAX runs.
+- `stage_2.ckpt` can point to a SiTDH-compatible PyTorch `.pt` checkpoint for inference, or to a JAX Orbax directory from a previous SiTDH run for resumed JAX runs.
 - `--set key=value` applies OmegaConf CLI overrides without adding a second config format.
 - `src_jax/build_stage1_stats.py` writes a PyTorch-compatible `stat.pt` file, so the same Stage 1 normalization stats can be reused by both the original repo code and the JAX adapter.
 - the Stage 1-only JAX utilities (`src_jax/stage1_sample.py`, `src_jax/build_stage1_stats.py`, and `src_jax/reconstruct_folder.py`) can run with a YAML that only defines `stage_1`; they do not require `stage_2.target`.
@@ -347,9 +346,9 @@ Key behavior:
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
 - `raes-jax-celeba-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA, but now points `UV_PROJECT_ENVIRONMENT` to `/tmp/.venv`, caches wheels under `/tmp/uv-cache`, runs `uv sync -q` against the repo `pyproject.toml`, and keeps package-backed steps inside `uv run` instead of relying on the notebook kernel interpreter.
-- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA variant explicitly to `DiTDH-S`, syncs the repo dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that Kaggle can reject, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
-- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the `DiTDH-B` Stage 2 variant, reusing the same Kaggle/JAX flow while writing a `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, naming runs/projects accordingly, and keeping the same `210000`-step checkpoint cadence.
-- `raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb` is now a stripped-down resume-only notebook: it first runs the old notebook archive extraction command `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip -d /kaggle/working`, then keeps only the minimal repo check, `uv sync`, Kaggle secret, path sanity check, and `src_jax/train.py --workdir ...` cells needed to locate the newest `CelebA256_DiTDH-B_DINOv2-B_jax_tpuv5e8-*` run under `/kaggle/working/results_jax_tpu/` and restore `latest_step()` from that run's newest `checkpoint_<step>/` directory.
+- `raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA variant explicitly to `SiTDH-S`, syncs the repo dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that Kaggle can reject, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
+- `raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the `SiTDH-B` Stage 2 variant, reusing the same Kaggle/JAX flow while writing a `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, naming runs/projects accordingly, and keeping the same `210000`-step checkpoint cadence.
+- `raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb` is now a stripped-down resume-only notebook: it first runs the old notebook archive extraction command `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip -d /kaggle/working`, then keeps only the minimal repo check, `uv sync`, Kaggle secret, path sanity check, and `src_jax/train.py --workdir ...` cells needed to locate the newest `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run under `/kaggle/working/results_jax_tpu/` and restore `latest_step()` from that run's newest `checkpoint_<step>/` directory.
 
 Current limitation:
 

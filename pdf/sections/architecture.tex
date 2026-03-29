@@ -31,9 +31,9 @@ src_jax/
   stage1_sample.py
   push_hf.py
 raes-jax-celeba-kaggle.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb
+raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb
 \end{lstlisting}
 
 \subsection{Stage 1: Representation Autoencoder}
@@ -62,10 +62,13 @@ Hành vi chính:
 trong repo này. Nó gọi backend NNX, nhưng vẫn dùng đúng các giá trị cấu hình
 trong block \texttt{stage\_1}.
 
-\subsection{Stage 2: DiT trong không gian latent}
+\subsection{Stage 2: SiT trong không gian latent}
 
-Implementation PyTorch/XLA chính nằm trong \texttt{src/stage2/models/DDT.py}.
-Mô hình xuất hiện nhiều nhất trong repo này là \texttt{DiTwDDTHead}.
+Surface Stage 2 mặc định của branch này nằm ở \texttt{src/stage2/models/SiT.py}.
+Lớp \texttt{SiTDH} là wrapper repo-facing cho backbone single-tower
+\texttt{LightningDiT} trong \texttt{src/stage2/models/lightningDiT.py}. File
+\texttt{src/stage2/models/DDT.py} vẫn còn trong repo như một legacy path, nhưng
+không còn là target Stage 2 mặc định của branch.
 
 Các đặc điểm quan trọng:
 
@@ -81,8 +84,9 @@ Các đặc điểm quan trọng:
 NNX:
 
 \begin{itemize}[leftmargin=1.5em]
-  \item \texttt{DiTwDDTHead} $\rightarrow$ \texttt{lightning\_ddt},
+  \item \texttt{SiTDH} $\rightarrow$ \texttt{lightning\_dit},
   \item \texttt{LightningDiT} $\rightarrow$ \texttt{lightning\_dit},
+  \item các target DDT legacy $\rightarrow$ \texttt{lightning\_ddt},
   \item các target kiểu DiT khác $\rightarrow$ \texttt{dit}.
 \end{itemize}
 
@@ -156,12 +160,15 @@ không còn bắt đầu từ một EMA cold-start sai ngay từ step đầu.
 
 \subsection{Checkpoint và tương thích trọng số}
 
-Một điểm quan trọng của nhánh JAX là vẫn tận dụng được checkpoint cũ:
+Với branch \texttt{jax-sit-dh}, checkpoint Stage 2 phải khớp shape của
+\texttt{SiTDH}/\texttt{LightningDiT}:
 
 \begin{itemize}[leftmargin=1.5em]
   \item nếu \texttt{stage\_2.ckpt} là file PyTorch \texttt{.pt}, adapter sẽ
-  port state dict sang NNX để inference hoặc khởi tạo train;
+  port state dict sang NNX để inference hoặc khởi tạo train nếu checkpoint đó
+  đã tương thích với \texttt{SiTDH};
   \item nếu \texttt{stage\_2.ckpt} là thư mục checkpoint Orbax, adapter sẽ
-  restore trực tiếp run JAX trước đó;
+  restore trực tiếp run JAX \texttt{SiTDH} trước đó;
+  \item checkpoint DDT legacy không được tự động convert trên branch này;
   \item decoder Stage 1 ở đường JAX vẫn dùng được checkpoint decoder PyTorch.
 \end{itemize}

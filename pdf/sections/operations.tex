@@ -121,8 +121,8 @@ python3 src_jax/train.py \
   \texttt{UV\_CACHE\_DIR=/tmp/uv-cache}, chạy \texttt{uv sync -q}, rồi chạy các
   bước phụ thuộc package qua \texttt{uv run}.
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-s.ipynb}; bản này cố định biến
-  thể Stage 2 là \texttt{DiTDH-S}, chuyển FID và build reference stats sang
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb}; bản này cố định biến
+  thể Stage 2 là \texttt{SiTDH-S}, chuyển FID và build reference stats sang
   detector backend-native của JAX, đồng thời cũng sync dependency của repo vào
   \texttt{/tmp/.venv} trước các bước \texttt{uv run}, tự xóa cờ executable-stack mà
   Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra \texttt{jax}/TPU bằng
@@ -130,19 +130,19 @@ python3 src_jax/train.py \
   \texttt{ema\_decay=0.99} và giữ mốc checkpoint mặc định ở \texttt{210000}
   step, nên mặc định quay lại EMA chuẩn của config.
   \item Nếu cần cùng flow Kaggle TPU đó nhưng muốn train biến thể
-  \texttt{DiTDH-B}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b.ipynb}. Bản này giữ toàn bộ
-  fix Kaggle/JAX hiện có, chỉ đổi phần Stage 2 sang config \texttt{DiTDH-B},
+  \texttt{SiTDH-B}, dùng notebook
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb}. Bản này giữ toàn bộ
+  fix Kaggle/JAX hiện có, chỉ đổi phần Stage 2 sang config \texttt{SiTDH-B},
   và dùng cùng cadence checkpoint \texttt{210000} step.
-  \item Nếu đã có sẵn một run Orbax của \texttt{DiTDH-B} và cần train tiếp từ
+  \item Nếu đã có sẵn một run Orbax của \texttt{SiTDH-B} và cần train tiếp từ
   checkpoint hiện có, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-ditdh-b-resume.ipynb}. Notebook này
+  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb}. Notebook này
   là bản resume-only tối giản cho trường hợp bắt đầu từ output archive của
   notebook cũ: cell đầu chạy lệnh \texttt{unzip -o
   /kaggle/input/notebooks/kieuhongquan/rae-jax/\_output\_.zip -d
   /kaggle/working}, sau đó chỉ kiểm tra repo đã có sẵn, chạy \texttt{uv sync},
   lấy secret wandb, kiểm tra path, rồi tự tìm thư mục run
-  \texttt{CelebA256\_DiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
+  \texttt{CelebA256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
   \texttt{/kaggle/working/results\_jax\_tpu/} và thư mục
   \texttt{checkpoint\_<step>/} mới nhất trong workdir đó trước khi truyền
   \texttt{--workdir} vào \texttt{src\_jax/train.py}. Runtime cũng tiếp

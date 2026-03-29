@@ -3,6 +3,9 @@
 
 
 # Import modules that perform registration on import.
+from .DDT import DiTwDDTHead
+from .SiT import SiTDH
+from .lightningDiT import LightningDiT
 from typing import Callable, Dict, Optional, Type, Union
 from typing import Protocol, Any, runtime_checkable
 
