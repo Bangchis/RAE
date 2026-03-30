@@ -55,11 +55,10 @@ Key behavior:
 ### Stage 2: SiT in Latent Space
 
 The branch-default Stage 2 target is [src/stage2/models/SiT.py](../src/stage2/models/SiT.py),
-which exposes `SiTDH` as a repo-facing wrapper over the single-tower
-`LightningDiT` implementation in [src/stage2/models/lightningDiT.py](../src/stage2/models/lightningDiT.py).
-The older DDT implementation in [src/stage2/models/DDT.py](../src/stage2/models/DDT.py)
-remains in the repo as a legacy path, but it is no longer the default Stage 2
-surface on this branch.
+which exposes `SiTDH` as a repo-facing alias over the two-tower
+`DiTwDDTHead` implementation in [src/stage2/models/DDT.py](../src/stage2/models/DDT.py).
+This keeps the Stage 2 architecture aligned with the DH variant while the JAX
+adapter continues to use the `sit` transport interface.
 
 Design highlights:
 
@@ -143,7 +142,7 @@ The JAX path is intentionally kept thin:
   `023afd23c7b62a8cdb00e840b36a4ab8fc970bba`
 - [src_jax/config_adapter.py](../src_jax/config_adapter.py):
   translates the repository's OmegaConf YAML into the backend config expected
-  by NNX, mapping `SiTDH` to the backend `lightning_dit` network while keeping
+  by NNX, mapping `SiTDH` to the backend `lightning_ddt` network while keeping
   the `sit` training interface
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
   training, checkpoint loading, sampling, guidance wiring, JAX validation-loss
@@ -240,13 +239,13 @@ raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb
 
 ## Checkpoint Compatibility
 
-On this branch, `stage_2.ckpt` must already be compatible with the single-tower
-SiTDH/LightningDiT shape.
+On this branch, `stage_2.ckpt` must already be compatible with the two-tower
+SiTDH/DiTwDDTHead shape.
 
 - PyTorch `.pt` checkpoints are supported when they come from a SiTDH-compatible
   model definition.
 - Orbax directories are supported when they come from previous SiTDH JAX runs.
-- Legacy DDT checkpoints are not auto-converted on this branch.
+- Legacy pre-DH SiTDH checkpoints are not auto-converted on this branch.
 - Stage 1 decoder checkpoints remain reusable on both the PyTorch and JAX paths.
 
 ## Experiment Artifacts

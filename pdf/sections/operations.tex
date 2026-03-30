@@ -132,8 +132,11 @@ python3 src_jax/train.py \
   \item Nếu cần cùng flow Kaggle TPU đó nhưng muốn train biến thể
   \texttt{SiTDH-B}, dùng notebook
   \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb}. Bản này giữ toàn bộ
-  fix Kaggle/JAX hiện có, chỉ đổi phần Stage 2 sang config \texttt{SiTDH-B},
-  và dùng cùng cadence checkpoint \texttt{210000} step.
+  fix Kaggle/JAX hiện có, đổi Stage 2 sang recipe DH/two-tower
+  \texttt{SiTDH-B} với \texttt{hidden\_size=[768, 2048]},
+  \texttt{depth=[12, 2]}, \texttt{num\_heads=[12, 16]},
+  \texttt{use\_pos\_embed=true}, \texttt{class\_dropout\_prob=0.0}, và dùng
+  cùng cadence checkpoint \texttt{210000} step.
   \item Nếu đã có sẵn một run Orbax của \texttt{SiTDH-B} và cần train tiếp từ
   checkpoint hiện có, dùng notebook
   \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb}. Notebook này

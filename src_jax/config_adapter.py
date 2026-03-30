@@ -62,7 +62,7 @@ def parse_guidance_value(cfg: dict[str, Any], key: str, default: float) -> float
 def infer_network_class(stage2_target: str) -> str:
     target = stage2_target.lower()
     if "sitdh" in target or ".sit." in target:
-        return "lightning_dit"
+        return "lightning_ddt"
     if "ddt" in target:
         return "lightning_ddt"
     if "lightningdit" in target or "lightning_dit" in target:

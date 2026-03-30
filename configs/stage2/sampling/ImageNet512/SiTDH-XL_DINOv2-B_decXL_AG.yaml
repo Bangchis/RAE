@@ -17,9 +17,9 @@ stage_2:
     input_size: 32
     patch_size: 1 
     in_channels: 768
-    hidden_size: 1152
-    depth: 28
-    num_heads: 16
+    hidden_size: [1152, 2048]
+    depth: [28, 2]
+    num_heads: [16, 16]
     mlp_ratio: 4.0
     class_dropout_prob: 0.1
     num_classes: 1000
@@ -28,6 +28,7 @@ stage_2:
     use_rope: True
     use_rmsnorm: True
     wo_shift: False
+    use_pos_embed: True
   ckpt: null
 
 
@@ -57,9 +58,9 @@ guidance:
       input_size: 32
       patch_size: 1 
       in_channels: 768
-      hidden_size: 384
-      depth: 12
-      num_heads: 6
+      hidden_size: [384, 2048]
+      depth: [12, 2]
+      num_heads: [6, 16]
       mlp_ratio: 4.0
       class_dropout_prob: 0.1
       num_classes: 1000
@@ -68,6 +69,7 @@ guidance:
       use_rope: True
       use_rmsnorm: True
       wo_shift: False
+      use_pos_embed: True
     ckpt: null
 
 

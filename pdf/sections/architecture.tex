@@ -65,10 +65,10 @@ trong block \texttt{stage\_1}.
 \subsection{Stage 2: SiT trong không gian latent}
 
 Surface Stage 2 mặc định của branch này nằm ở \texttt{src/stage2/models/SiT.py}.
-Lớp \texttt{SiTDH} là wrapper repo-facing cho backbone single-tower
-\texttt{LightningDiT} trong \texttt{src/stage2/models/lightningDiT.py}. File
-\texttt{src/stage2/models/DDT.py} vẫn còn trong repo như một legacy path, nhưng
-không còn là target Stage 2 mặc định của branch.
+Lớp \texttt{SiTDH} là alias repo-facing cho backbone DH/two-tower
+\texttt{DiTwDDTHead} trong \texttt{src/stage2/models/DDT.py}. Điều này giữ cho
+kiến trúc Stage 2 khớp với biến thể DH, còn objective trên đường JAX vẫn đi qua
+interface \texttt{sit}.
 
 Các đặc điểm quan trọng:
 
@@ -84,7 +84,7 @@ Các đặc điểm quan trọng:
 NNX:
 
 \begin{itemize}[leftmargin=1.5em]
-  \item \texttt{SiTDH} $\rightarrow$ \texttt{lightning\_dit},
+  \item \texttt{SiTDH} $\rightarrow$ \texttt{lightning\_ddt},
   \item \texttt{LightningDiT} $\rightarrow$ \texttt{lightning\_dit},
   \item các target DDT legacy $\rightarrow$ \texttt{lightning\_ddt},
   \item các target kiểu DiT khác $\rightarrow$ \texttt{dit}.

@@ -72,14 +72,19 @@ Một số key quan trọng:
   \item \texttt{ckpt}: có thể là file PyTorch \texttt{.pt} hoặc thư mục Orbax,
   nhưng trên branch này nó phải tương thích với shape của \texttt{SiTDH};
   \item \texttt{input\_size}, \texttt{patch\_size}, \texttt{in\_channels};
-  \item \texttt{hidden\_size}, \texttt{depth}, \texttt{num\_heads};
+  \item \texttt{hidden\_size}, \texttt{depth}, \texttt{num\_heads}: với
+  \texttt{SiTDH} đây là các cặp encoder/decoder của backbone DH;
+  \item \texttt{class\_dropout\_prob}: tỉ lệ label dropout cho CFG; với
+  notebook CelebA một lớp trên đường JAX thì giá trị này được đặt về
+  \texttt{0.0};
   \item các toggle như \texttt{use\_rope}, \texttt{use\_rmsnorm},
-  \texttt{use\_swiglu}, \texttt{wo\_shift}.
+  \texttt{use\_swiglu}, \texttt{wo\_shift}, \texttt{use\_pos\_embed}.
 \end{itemize}
 
 Với config mặc định của branch này, \texttt{target} sẽ là \texttt{SiTDH} và
-adapter JAX sẽ ánh xạ nó sang backend \texttt{lightning\_dit}. Các target DDT
-legacy vẫn còn được adapter hiểu, nhưng repo-owned config không còn dùng chúng.
+adapter JAX sẽ ánh xạ nó sang backend \texttt{lightning\_ddt} trong khi vẫn giữ
+\texttt{interface\_class=sit}. Các target DDT legacy cũng đi cùng đường
+\texttt{lightning\_ddt}.
 
 \subsection{Block \texttt{guidance}}
 

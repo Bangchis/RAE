@@ -290,12 +290,15 @@ Stage 1 và Stage 2 ở TPU, đồng thời build \texttt{fid\_ref} bằng đún
 backend dùng cho online FID, và giữ cadence checkpoint mặc định ở mốc
 \texttt{210000} step.
 
-Nếu muốn giữ nguyên flow đó nhưng đổi Stage 2 sang biến thể \texttt{SiTDH-B},
+Nếu muốn giữ nguyên flow đó nhưng đổi Stage 2 sang biến thể DH
+\texttt{SiTDH-B},
 dùng notebook \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb}. Notebook
 này ghi config CelebA thành
-\texttt{CelebA256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8.yaml}, đổi encoder-side
-\texttt{hidden\_size} sang \texttt{768}, đổi \texttt{num\_heads} sang
-\texttt{12}, đặt tên run/project mặc định theo biến thể \texttt{SiTDH-B}, và
+\texttt{CelebA256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8.yaml}, đặt backbone DH thành
+\texttt{hidden\_size=[768, 2048]}, \texttt{depth=[12, 2]},
+\texttt{num\_heads=[12, 16]}, bật \texttt{use\_pos\_embed}, tắt label dropout
+bằng \texttt{class\_dropout\_prob=0.0}, đặt tên run/project mặc định theo biến
+thể \texttt{SiTDH-B}, và
 giữ cùng cadence checkpoint \texttt{210000} step.
 
 Nếu đã có thư mục run Orbax của \texttt{SiTDH-B} và cần train tiếp, dùng

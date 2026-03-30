@@ -18,7 +18,7 @@ except ModuleNotFoundError as exc:
 
 @unittest.skipIf(_IMPORT_ERROR is not None, f"Missing optional dependency: {_IMPORT_ERROR}")
 class JaxAdapterTests(unittest.TestCase):
-    def test_build_backend_config_maps_sitdh_to_lightning_dit(self) -> None:
+    def test_build_backend_config_maps_sitdh_to_lightning_ddt(self) -> None:
         repo_cfg, config_path = load_repo_config("configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml")
         backend_cfg = build_backend_config_dict(
             repo_cfg,
@@ -31,10 +31,13 @@ class JaxAdapterTests(unittest.TestCase):
             enable_eval=False,
         )
 
-        self.assertEqual(backend_cfg["network_class"], "lightning_dit")
-        self.assertEqual(backend_cfg["network"]["hidden_size"], 1152)
-        self.assertEqual(backend_cfg["network"]["depth"], 28)
-        self.assertEqual(backend_cfg["network"]["num_heads"], 16)
+        self.assertEqual(backend_cfg["network_class"], "lightning_ddt")
+        self.assertEqual(backend_cfg["network"]["num_encoder_blocks"], 28)
+        self.assertEqual(backend_cfg["network"]["num_decoder_blocks"], 2)
+        self.assertEqual(backend_cfg["network"]["encoder_hidden_size"], 1152)
+        self.assertEqual(backend_cfg["network"]["decoder_hidden_size"], 2048)
+        self.assertEqual(backend_cfg["network"]["encoder_num_heads"], 16)
+        self.assertEqual(backend_cfg["network"]["decoder_num_heads"], 16)
         self.assertEqual(backend_cfg["interface_class"], "sit")
         self.assertEqual(backend_cfg["dtype"], "bfloat16")
         self.assertEqual(backend_cfg["data"]["data_dir"], "/tmp/imagenet")
@@ -104,10 +107,13 @@ class JaxAdapterTests(unittest.TestCase):
             enable_eval=False,
         )
 
-        self.assertEqual(backend_cfg["network_class"], "lightning_dit")
-        self.assertEqual(backend_cfg["network"]["hidden_size"], 384)
-        self.assertEqual(backend_cfg["network"]["depth"], 12)
-        self.assertEqual(backend_cfg["network"]["num_heads"], 6)
+        self.assertEqual(backend_cfg["network_class"], "lightning_ddt")
+        self.assertEqual(backend_cfg["network"]["num_encoder_blocks"], 12)
+        self.assertEqual(backend_cfg["network"]["num_decoder_blocks"], 2)
+        self.assertEqual(backend_cfg["network"]["encoder_hidden_size"], 384)
+        self.assertEqual(backend_cfg["network"]["decoder_hidden_size"], 2048)
+        self.assertEqual(backend_cfg["network"]["encoder_num_heads"], 6)
+        self.assertEqual(backend_cfg["network"]["decoder_num_heads"], 16)
 
 
 if __name__ == "__main__":

@@ -102,9 +102,9 @@ stage_2:
     input_size: 16
     patch_size: 1
     in_channels: 768
-    hidden_size: 1152
-    depth: 28
-    num_heads: 16
+    hidden_size: [1152, 2048]
+    depth: [28, 2]
+    num_heads: [16, 16]
     mlp_ratio: 4.0
     class_dropout_prob: 0.1
     num_classes: 1000
@@ -113,6 +113,7 @@ stage_2:
     use_rope: true
     use_rmsnorm: true
     wo_shift: false
+    use_pos_embed: true
 ```
 
 Common fields:
@@ -121,19 +122,22 @@ Common fields:
 - `ckpt`: checkpoint used for sampling or fine-tuning resume
 - `params.input_size`: latent spatial resolution
 - `params.in_channels`: latent channel count
-- `params.hidden_size`: transformer hidden width
-- `params.depth`: number of transformer blocks
-- `params.num_heads`: attention heads per block
-- feature toggles such as `use_rope`, `use_rmsnorm`, and `use_swiglu`
+- `params.hidden_size`: encoder and decoder hidden widths for the DH backbone
+- `params.depth`: encoder and decoder block counts
+- `params.num_heads`: encoder and decoder attention head counts
+- `params.class_dropout_prob`: classifier-free label dropout rate; for the
+  single-class CelebA JAX notebooks this is set to `0.0`
+- feature toggles such as `use_rope`, `use_rmsnorm`, `use_swiglu`, and
+  `use_pos_embed`
 
 For the JAX adapter:
 
 - `stage_2.ckpt` may be either a PyTorch `.pt` checkpoint or a JAX Orbax
   directory
 - `target` is used only to infer which NNX backbone should be instantiated;
-  branch-owned `SiTDH` targets map to `lightning_dit`
-- legacy DDT targets still map to `lightning_ddt`, but the repo-owned configs
-  on this branch no longer use that path
+  branch-owned `SiTDH` targets map to `lightning_ddt`
+- the adapter keeps `interface_class: sit`, so the transport objective stays
+  on the SiT path even though the network backbone is DH/two-tower
 
 ## `transport`
 

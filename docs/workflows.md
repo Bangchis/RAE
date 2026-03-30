@@ -440,12 +440,13 @@ Python process, keeps Stage 1 and Stage 2 on TPU, builds the JAX `fid_ref` with
 the same backend detector used by online FID, and keeps the default checkpoint
 cadence at `210000` steps.
 
-If you want the same Kaggle TPU flow but with a `SiTDH-B` Stage 2 setup, use
+If you want the same Kaggle TPU flow but with the `SiTDH-B` DH Stage 2 setup, use
 [../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb).
 That notebook keeps the same JAX/TPU workarounds and data prep, but writes the
 CelebA Stage 2 config as `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
-switches the encoder-side transformer width to `768`, renames the default wandb
-project/run to the `SiTDH-B` variant, and keeps the same `210000`-step
+using the DH two-tower layout `hidden_size=[768, 2048]`, `depth=[12, 2]`,
+`num_heads=[12, 16]`, enabling `use_pos_embed`, disabling label dropout with
+`class_dropout_prob=0.0`, and keeping the same `210000`-step
 checkpoint cadence.
 
 If you already have an Orbax run directory for `SiTDH-B` and want to continue
