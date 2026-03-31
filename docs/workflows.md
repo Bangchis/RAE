@@ -24,7 +24,7 @@ JAX / NNX additions for `src_jax/`:
 
 ```bash
 uv pip install "jax[cuda12]==0.5.1" flax==0.10.4 optax==0.2.4 orbax-checkpoint==0.11.16
-uv pip install ml-collections clu absl-py etils huggingface_hub
+uv pip install ml-collections clu absl-py etils datasets huggingface_hub tensorflow-datasets
 ```
 
 The first JAX run automatically bootstraps `diffuse_nnx` into
@@ -70,7 +70,7 @@ dataset_root/
 ```
 
 For unlabeled one-class datasets, you still need one subdirectory, for example
-after exporting TFDS `celeb_a_hq/256`:
+after exporting CelebA-HQ into `ImageFolder`:
 
 ```text
 celebahq256_imgfolder/
@@ -426,21 +426,23 @@ you want the standard Kaggle-style workflow end to end:
 - set `UV_PROJECT_ENVIRONMENT=/tmp/.venv` and `UV_CACHE_DIR=/tmp/uv-cache`
 - run `uv sync -q` from the repo root
 - run package-backed data/stat/reconstruction/train steps through `uv run`
-- export TFDS `celeb_a_hq/256` into a real `256x256` `ImageFolder`
+- download `eurecom-ds/celeba-hq` from Hugging Face and export it into a real `256x256` `ImageFolder`
 - create the bootstrap identity stats file
 - compute Stage 1 latent stats for CelebA-HQ
 - export Stage 1 reconstructions and build validation FID stats
 - write a CelebA-HQ Stage 2 config and launch `src_jax/train.py`
 
-The helper script behind that step is
-[`src_jax/export_celebahq_tfds.py`](../src_jax/export_celebahq_tfds.py). It
-still materializes the dataset into `ImageFolder`, because the current JAX
-training/runtime path has not been refactored to consume `tf.data` or TFDS
-directly. TFDS `celeb_a_hq` also requires the official manual tar files, so on
-Kaggle the notebooks expect them under `/kaggle/input/celebahq-tfds-manual/`.
-The helper now also forces the Python protobuf runtime before importing TFDS,
-which avoids the frequent Kaggle `Descriptors cannot be created directly`
-failure caused by mixed protobuf builds.
+The default helper script behind that step is
+[`src_jax/export_celebahq_hf.py`](../src_jax/export_celebahq_hf.py). It
+downloads the public Hugging Face dataset `eurecom-ds/celeba-hq` into a cache
+directory, then materializes it into `ImageFolder`, because the current JAX
+training/runtime path has not been refactored to consume a Hub dataset
+directly. The older
+[`src_jax/export_celebahq_tfds.py`](../src_jax/export_celebahq_tfds.py) helper
+is still available as a fallback if you specifically want the TFDS
+`celeb_a_hq/256` route with manual tar files; that fallback still forces the
+Python protobuf runtime before importing TFDS to avoid the common Kaggle
+descriptor crash.
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).

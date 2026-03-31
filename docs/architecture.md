@@ -120,6 +120,9 @@ the TPU loop.
   reconstruct an image folder through the JAX RAE path
 - [src_jax/build_stage1_stats.py](../src_jax/build_stage1_stats.py):
   compute dataset-specific Stage 1 latent normalization stats
+- [src_jax/export_celebahq_hf.py](../src_jax/export_celebahq_hf.py):
+  export the Hugging Face dataset `eurecom-ds/celeba-hq` into the `ImageFolder`
+  layout still expected by the current JAX training notebooks
 - [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
   export TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by
   the current JAX training notebooks, while forcing the Python protobuf runtime
@@ -153,6 +156,10 @@ The JAX path is intentionally kept thin:
   integration, and FID glue for both EMA and optional online-model diagnostics
 - [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
   shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
+- [src_jax/export_celebahq_hf.py](../src_jax/export_celebahq_hf.py):
+  prepares the public Hugging Face CelebA-HQ source into a repo-compatible
+  `ImageFolder` tree for Kaggle and local JAX workflows without manual tar
+  files
 - [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
   prepares the manual TFDS CelebA-HQ source into a repo-compatible
   `ImageFolder` tree for Kaggle and local JAX workflows
@@ -231,6 +238,7 @@ src_jax/
   stage2_runtime.py
   stage1_runtime.py
   build_stage1_stats.py
+  export_celebahq_hf.py
   export_celebahq_tfds.py
   reconstruct_folder.py
   hf_utils.py
