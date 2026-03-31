@@ -9,11 +9,32 @@ from typing import Any, Iterable
 
 from PIL import Image
 
-from src_jax.export_celebahq_tfds import build_split_specs, normalize_example_filename
-
-
 HF_DATASET_DEFAULT = "eurecom-ds/celeba-hq"
 HF_DATASET_URL = f"https://huggingface.co/datasets/{HF_DATASET_DEFAULT}"
+
+
+def build_split_specs(train_percent: int = 90, val_percent: int = 5) -> dict[str, str]:
+    if train_percent <= 0 or val_percent <= 0:
+        raise ValueError("train_percent and val_percent must both be greater than 0.")
+    test_percent = 100 - train_percent - val_percent
+    if test_percent <= 0:
+        raise ValueError("train_percent + val_percent must be less than 100.")
+    return {
+        "train": f"train[:{train_percent}%]",
+        "val": f"train[{train_percent}%:{train_percent + val_percent}%]",
+        "test": f"train[{train_percent + val_percent}%:]",
+    }
+
+
+def normalize_example_filename(raw_filename: Any, *, index: int) -> str:
+    if hasattr(raw_filename, "item"):
+        raw_filename = raw_filename.item()
+    if isinstance(raw_filename, bytes):
+        raw_filename = raw_filename.decode("utf-8")
+    filename = Path(str(raw_filename or f"{index:06d}.png")).name
+    if not Path(filename).suffix:
+        filename = f"{filename}.png"
+    return filename
 
 
 def _load_hf_dataset(
