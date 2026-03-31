@@ -275,7 +275,7 @@ Kaggle:
   \item đặt \texttt{UV\_PROJECT\_ENVIRONMENT=/tmp/.venv} và \texttt{UV\_CACHE\_DIR=/tmp/uv-cache};
   \item chạy \texttt{uv sync -q} từ root của repo;
   \item chạy các bước phụ thuộc package qua \texttt{uv run};
-  \item tải dataset Hugging Face \texttt{eurecom-ds/celeba-hq} rồi export thành \texttt{ImageFolder} \texttt{256x256};
+  \item tải dataset Hugging Face \texttt{eurecom-ds/celeba-hq-256} rồi export thành \texttt{ImageFolder} \texttt{256x256};
   \item tạo bootstrap identity stat, build latent stat cho Stage 1;
   \item export reconstruction validation set, build \texttt{fid\_ref};
   \item ghi sẵn config CelebA-HQ cho \texttt{src\_jax/train.py}.
@@ -283,13 +283,18 @@ Kaggle:
 
 Script mặc định đứng sau bước export là \texttt{src\_jax/export\_celebahq\_hf.py}.
 Đường train JAX hiện tại vẫn tiêu thụ \texttt{ImageFolder}, nên notebook chỉ
-dùng Hugging Face để tải \texttt{eurecom-ds/celeba-hq} vào cache cục bộ rồi
+dùng Hugging Face để tải \texttt{eurecom-ds/celeba-hq-256} vào cache cục bộ rồi
 materialize dữ liệu đầu vào tại chỗ. Nếu vẫn muốn đi theo route TFDS cũ, repo
 giữ lại \texttt{src\_jax/export\_celebahq\_tfds.py}; script đó vẫn cần các tar
 file manual chính thức và vẫn ép
 \texttt{PROTOCOL\_BUFFERS\_PYTHON\_IMPLEMENTATION=python} trước khi import TFDS
 để tránh lỗi Kaggle kiểu ``Descriptors cannot be created directly'' khi
 protobuf trong môi trường không đồng nhất.
+
+Cell train Stage 2 cuối của các notebook CelebA-HQ truyền
+\texttt{--data-path /kaggle/working/celebahq256\_imgfolder/train}, còn
+\texttt{eval.data\_path} trong config sinh ra vẫn trỏ tới split
+\texttt{val}.
 
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb}. Bản này cố định biến thể

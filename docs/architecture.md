@@ -121,7 +121,7 @@ the TPU loop.
 - [src_jax/build_stage1_stats.py](../src_jax/build_stage1_stats.py):
   compute dataset-specific Stage 1 latent normalization stats
 - [src_jax/export_celebahq_hf.py](../src_jax/export_celebahq_hf.py):
-  export the Hugging Face dataset `eurecom-ds/celeba-hq` into the `ImageFolder`
+  export the Hugging Face dataset `eurecom-ds/celeba-hq-256` into the `ImageFolder`
   layout still expected by the current JAX training notebooks
 - [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
   export TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by

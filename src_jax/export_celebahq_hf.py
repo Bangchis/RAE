@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from PIL import Image
 
-HF_DATASET_DEFAULT = "eurecom-ds/celeba-hq"
+HF_DATASET_DEFAULT = "eurecom-ds/celeba-hq-256"
 HF_DATASET_URL = f"https://huggingface.co/datasets/{HF_DATASET_DEFAULT}"
 
 
@@ -184,7 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Export a Hugging Face CelebA-HQ dataset into the ImageFolder layout expected by the JAX pipeline."
     )
-    parser.add_argument("--dataset", default=HF_DATASET_DEFAULT, help="Hugging Face dataset id, e.g. eurecom-ds/celeba-hq.")
+    parser.add_argument(
+        "--dataset",
+        default=HF_DATASET_DEFAULT,
+        help="Hugging Face dataset id, e.g. eurecom-ds/celeba-hq-256.",
+    )
     parser.add_argument("--output", type=Path, required=True, help="Destination ImageFolder root.")
     parser.add_argument("--cache-dir", type=Path, default=None, help="Optional Hugging Face datasets cache directory.")
     parser.add_argument("--revision", default=None, help="Optional dataset revision or commit hash for reproducibility.")

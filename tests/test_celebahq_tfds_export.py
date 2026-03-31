@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from src_jax.export_celebahq_hf import _coerce_image_to_pil, _export_examples, _resolve_example_filename
+from src_jax.export_celebahq_hf import (
+    HF_DATASET_DEFAULT,
+    _coerce_image_to_pil,
+    _export_examples,
+    _resolve_example_filename,
+)
 from src_jax.export_celebahq_tfds import (
     _configure_tfds_runtime,
     build_split_specs,
@@ -17,6 +22,9 @@ from src_jax.export_celebahq_tfds import (
 
 
 class CelebAHQExportTests(unittest.TestCase):
+    def test_hf_export_default_points_to_256_dataset(self) -> None:
+        self.assertEqual(HF_DATASET_DEFAULT, "eurecom-ds/celeba-hq-256")
+
     def test_configure_tfds_runtime_defaults_to_python_protobuf_runtime(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             _configure_tfds_runtime()

@@ -426,7 +426,7 @@ you want the standard Kaggle-style workflow end to end:
 - set `UV_PROJECT_ENVIRONMENT=/tmp/.venv` and `UV_CACHE_DIR=/tmp/uv-cache`
 - run `uv sync -q` from the repo root
 - run package-backed data/stat/reconstruction/train steps through `uv run`
-- download `eurecom-ds/celeba-hq` from Hugging Face and export it into a real `256x256` `ImageFolder`
+- download `eurecom-ds/celeba-hq-256` from Hugging Face and export it into a real `256x256` `ImageFolder`
 - create the bootstrap identity stats file
 - compute Stage 1 latent stats for CelebA-HQ
 - export Stage 1 reconstructions and build validation FID stats
@@ -434,7 +434,7 @@ you want the standard Kaggle-style workflow end to end:
 
 The default helper script behind that step is
 [`src_jax/export_celebahq_hf.py`](../src_jax/export_celebahq_hf.py). It
-downloads the public Hugging Face dataset `eurecom-ds/celeba-hq` into a cache
+downloads the public Hugging Face dataset `eurecom-ds/celeba-hq-256` into a cache
 directory, then materializes it into `ImageFolder`, because the current JAX
 training/runtime path has not been refactored to consume a Hub dataset
 directly. The older
@@ -443,6 +443,10 @@ is still available as a fallback if you specifically want the TFDS
 `celeb_a_hq/256` route with manual tar files; that fallback still forces the
 Python protobuf runtime before importing TFDS to avoid the common Kaggle
 descriptor crash.
+
+The final Stage 2 train cells in the CelebA-HQ notebooks pass
+`--data-path /kaggle/working/celebahq256_imgfolder/train`, while the generated
+config keeps `eval.data_path` on `/kaggle/working/celebahq256_imgfolder/val`.
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).
