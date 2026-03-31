@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,13 @@ from PIL import Image
 
 DATASET_DOCS_URL = "https://www.tensorflow.org/datasets/catalog/celeb_a_hq"
 MANUAL_PREP_URL = "https://github.com/tkarras/progressive_growing_of_gans#preparing-datasets-for-training"
+
+
+def _configure_tfds_runtime() -> None:
+    # TFDS can pull in older generated protobuf bindings on Kaggle/Colab stacks.
+    # The pure-Python protobuf runtime avoids the "Descriptors cannot be created
+    # directly" crash without forcing users to mutate the notebook environment.
+    os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
 
 def build_split_specs(train_percent: int = 90, val_percent: int = 5) -> dict[str, str]:
@@ -38,6 +46,7 @@ def normalize_example_filename(raw_filename: Any, *, index: int) -> str:
 
 
 def _load_tfds_builder(dataset: str, data_dir: Path, manual_dir: Path | None):
+    _configure_tfds_runtime()
     try:
         import tensorflow_datasets as tfds
     except ModuleNotFoundError as exc:
@@ -45,6 +54,13 @@ def _load_tfds_builder(dataset: str, data_dir: Path, manual_dir: Path | None):
             "tensorflow-datasets is required for CelebA-HQ export. "
             "Install repo dependencies with `uv sync` first."
         ) from exc
+
+    if not hasattr(tfds, "builder"):
+        raise RuntimeError(
+            "tensorflow-datasets imported without the expected public API. "
+            "This usually means the TFDS import failed part-way through because "
+            "of a protobuf compatibility problem in the current environment."
+        )
 
     builder = tfds.builder(dataset, data_dir=str(data_dir))
     download_kwargs: dict[str, Any] = {}

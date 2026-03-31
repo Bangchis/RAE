@@ -122,7 +122,8 @@ the TPU loop.
   compute dataset-specific Stage 1 latent normalization stats
 - [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
   export TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by
-  the current JAX training notebooks
+  the current JAX training notebooks, while forcing the Python protobuf runtime
+  before importing TFDS to avoid Kaggle descriptor crashes
 
 ### FID Utilities
 

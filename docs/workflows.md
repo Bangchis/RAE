@@ -438,6 +438,9 @@ still materializes the dataset into `ImageFolder`, because the current JAX
 training/runtime path has not been refactored to consume `tf.data` or TFDS
 directly. TFDS `celeb_a_hq` also requires the official manual tar files, so on
 Kaggle the notebooks expect them under `/kaggle/input/celebahq-tfds-manual/`.
+The helper now also forces the Python protobuf runtime before importing TFDS,
+which avoids the frequent Kaggle `Descriptors cannot be created directly`
+failure caused by mixed protobuf builds.
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).

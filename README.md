@@ -341,7 +341,7 @@ Key behavior:
 - `--set key=value` applies OmegaConf CLI overrides without adding a second config format.
 - `src_jax/build_stage1_stats.py` writes a PyTorch-compatible `stat.pt` file, so the same Stage 1 normalization stats can be reused by both the original repo code and the JAX adapter.
 - the Stage 1-only JAX utilities (`src_jax/stage1_sample.py`, `src_jax/build_stage1_stats.py`, and `src_jax/reconstruct_folder.py`) can run with a YAML that only defines `stage_1`; they do not require `stage_2.target`.
-- `src_jax/export_celebahq_tfds.py` materializes TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by the current JAX training pipeline; TFDS requires the official manual tar files under `--manual-dir`.
+- `src_jax/export_celebahq_tfds.py` materializes TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by the current JAX training pipeline; TFDS requires the official manual tar files under `--manual-dir`, and the helper forces the pure-Python protobuf runtime before importing TFDS so Kaggle does not trip over the common descriptor-compatibility crash.
 - for dataset-specific Stage 1 stats, start from a bootstrap identity stats file (`mean=0`, `var=1`) and override `stage_1.params.normalization_stat_path` during the stats pass.
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.

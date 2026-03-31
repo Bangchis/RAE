@@ -122,7 +122,7 @@ File & Vai trò \\
 \texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, JAX validation-loss integration, FID glue, wandb bridge \\
  \texttt{src\_jax/stage1\_runtime.py} & Load encoder Stage 1 JAX, reconstruction một ảnh, reconstruction cả thư mục và tích lũy latent stat \\
  \texttt{src\_jax/build\_stage1\_stats.py} & Tạo file \texttt{stat.pt} theo định dạng mean / var để dùng lại cho Stage 1 \\
- \texttt{src\_jax/export\_celebahq\_tfds.py} & Export TFDS \texttt{celeb\_a\_hq/256} thành cây \texttt{ImageFolder} cho pipeline JAX hiện tại \\
+ \texttt{src\_jax/export\_celebahq\_tfds.py} & Export TFDS \texttt{celeb\_a\_hq/256} thành cây \texttt{ImageFolder} cho pipeline JAX hiện tại và ép protobuf runtime kiểu Python để tránh lỗi import TFDS trên Kaggle \\
  \texttt{src\_jax/build\_fid\_stats.py} & Build \texttt{fid\_ref} bằng đúng detector Flax Inception của backend JAX \\
  \texttt{src\_jax/reconstruct\_folder.py} & Export reconstruction cho cả thư mục ảnh theo pipeline JAX \\
 \texttt{src\_jax/hf\_utils.py} & Upload file hoặc thư mục lên Hugging Face \\
