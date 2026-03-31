@@ -159,6 +159,30 @@ class JaxAdapterTests(unittest.TestCase):
         self.assertTrue(backend_cfg["diagnostics"]["log_rae_latent_stats"])
         self.assertTrue(backend_cfg["diagnostics"]["log_activation_stats"])
 
+    def test_prefetch_factors_are_forwarded(self) -> None:
+        repo_cfg, config_path = load_repo_config(
+            "configs/stage2/training/ImageNet256/SiTDH-S_DINOv2-B.yaml",
+            overrides=[
+                "training.prefetch_factor=8",
+                "eval.data_path=/tmp/imagenet_val",
+                "eval.eval_every=5000",
+                "eval.prefetch_factor=3",
+            ],
+        )
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=config_path,
+            mode="train",
+            data_path="/tmp/imagenet_train",
+            precision="bf16",
+            seed=7,
+            num_train_samples=1281167,
+            enable_eval=True,
+        )
+
+        self.assertEqual(backend_cfg["data"]["prefetch_factor"], 8)
+        self.assertEqual(backend_cfg["eval"]["prefetch_factor"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

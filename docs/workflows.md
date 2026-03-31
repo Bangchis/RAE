@@ -179,15 +179,19 @@ python3 src_jax/train.py \
   --wandb
 ```
 
-On Kaggle TPU, prefer adding `--set training.num_workers=1` so the backend
-PyTorch loader stays compatible with `persistent_workers=True` without forking a
-large worker pool after JAX has already initialized multithreaded runtime
-state. The adapter also disables the backend TensorBoard summary writer on
+On Kaggle TPU, start from `--set training.num_workers=1` and then raise
+`--set training.prefetch_factor=<n>` before jumping straight to a large worker
+pool. This keeps the backend PyTorch loader compatible with
+`persistent_workers=True` after JAX has already initialized multithreaded
+runtime state, while still letting the host queue several ready batches ahead
+of the TPU. The adapter also disables the backend TensorBoard summary writer on
 Kaggle and keeps metric logging on stdout plus wandb.
 
 Useful additions:
 
 - `--set training.global_batch_size=256`: override YAML values from the CLI
+- `--set training.prefetch_factor=8`: deepen the host-side train prefetch queue
+- `--set eval.prefetch_factor=4`: do the same for the validation loader
 - `--hf-repo-id <user>/<repo>`: upload the finished workdir to Hugging Face
 - `--workdir <path>`: force an explicit output directory instead of letting the
   adapter derive one from `--results-dir`
@@ -457,9 +461,12 @@ config keeps `eval.data_path` on `/kaggle/working/celebahq256_imgfolder/val`.
 Those notebook train/resume cells also enable
 `--set training.log_rae_latent_stats=true` and
 `--set training.log_activation_stats=true` by default so wandb exposes latent
-and activation RMS/variance during the run. Expect a measurable throughput and
-memory cost when activation logging is enabled, because the backend now returns
-intermediate SiTDH features on every train step.
+and activation RMS/variance during the run. The TPU notebooks now also set
+`--set training.prefetch_factor=8` and `--set eval.prefetch_factor=4` so the
+host can queue batches more aggressively without immediately increasing
+`training.num_workers`. Expect a measurable throughput and memory cost when
+activation logging is enabled, because the backend now returns intermediate
+SiTDH features on every train step.
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).

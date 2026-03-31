@@ -249,6 +249,7 @@ training:
   grad_accum_steps: 1
   ema_decay: 0.9995
   num_workers: 4
+  prefetch_factor: 2
   log_every: 100
   ckpt_every: 5000
   sample_every: 10000
@@ -271,6 +272,9 @@ Notes:
   `global_batch_size / (world_size * grad_accum_steps)`
 - optimizer defaults to AdamW
 - scheduler supports `linear` and `cosine`
+- `prefetch_factor` is forwarded to the host-side PyTorch `DataLoader` on the
+  JAX Stage 2 path when `num_workers > 0`; increasing it can hide host I/O
+  latency spikes without changing model compute
 - `log_rae_latent_stats: true` makes the JAX path log RMS and variance of the
   Stage 1 RAE latents actually fed into Stage 2 as `train_rae_latent_rms` and
   `train_rae_latent_var`
@@ -307,6 +311,7 @@ eval:
   eval_every: 5000
   batch_size: 128
   num_workers: 4
+  prefetch_factor: 2
   max_batches: 32
   eval_model: false
 ```
@@ -317,6 +322,8 @@ Meaning:
 - `eval_every`: cadence in optimizer steps
 - `batch_size`: per-device evaluation batch size
 - `num_workers`: dataloader workers for eval
+- `prefetch_factor`: per-worker prefetch depth for the host-side eval loader on
+  the JAX path; only applies when `num_workers > 0`
 - `max_batches`: optional per-rank cap
 - `eval_model`: score the non-EMA model in addition to EMA
 

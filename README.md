@@ -284,10 +284,12 @@ python3 src_jax/train.py \
   --set training.global_batch_size=256
 ```
 
-On Kaggle TPU, prefer adding `--set training.num_workers=1` so the backend
-PyTorch loader stays compatible with `persistent_workers=True` without forking a
-large worker pool after JAX has already initialized multithreaded runtime
-state. The adapter also disables the backend TensorBoard summary writer on
+On Kaggle TPU, start from `--set training.num_workers=1` and then raise
+`--set training.prefetch_factor=<n>` before jumping straight to a large worker
+pool. This keeps the backend PyTorch loader compatible with
+`persistent_workers=True` after JAX has already initialized multithreaded
+runtime state, while still letting the host queue several ready batches ahead
+of the TPU. The adapter also disables the backend TensorBoard summary writer on
 Kaggle and keeps metric logging on stdout plus wandb.
 
 ```bash
@@ -349,11 +351,12 @@ Key behavior:
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
 - `training.log_rae_latent_stats=true` makes the JAX train loop log RMS and variance of the Stage 1 RAE latents actually consumed by Stage 2, while `training.log_activation_stats=true` logs RMS and variance for the SiTDH output and each encoder/decoder activation block.
+- `training.prefetch_factor` and `eval.prefetch_factor` now forward directly into the host-side PyTorch `DataLoader` used by the JAX Stage 2 path, so you can deepen the per-worker prefetch queue without editing the cached backend checkout by hand.
 - `raes-jax-celebahq-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA-HQ, but now points `UV_PROJECT_ENVIRONMENT` to `/tmp/.venv`, caches wheels under `/tmp/uv-cache`, runs `uv sync -q` against the repo `pyproject.toml`, downloads `eurecom-ds/celeba-hq-256` from Hugging Face into `/kaggle/working/hf_datasets_cache`, exports it into `/kaggle/working/celebahq256_imgfolder`, and keeps package-backed steps inside `uv run` instead of relying on the notebook kernel interpreter.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA-HQ variant explicitly to `SiTDH-S`, disables label dropout for the single-class setup by setting `class_dropout_prob=0.0`, syncs the repo dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that Kaggle can reject, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the DH/two-tower `SiTDH-B` Stage 2 recipe, reusing the same Kaggle/JAX flow while writing a `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, setting `hidden_size=[768, 2048]`, `depth=[12, 2]`, `num_heads=[12, 16]`, enabling `use_pos_embed`, disabling label dropout with `class_dropout_prob=0.0`, and keeping the same `210000`-step checkpoint cadence.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb` is now a stripped-down resume-only notebook: it first runs the old notebook archive extraction command `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip -d /kaggle/working`, then keeps only the minimal repo check, `uv sync`, Kaggle secret, path sanity check, and `src_jax/train.py --workdir ...` cells needed to locate the newest `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run under `/kaggle/working/results_jax_tpu/` and restore `latest_step()` from that run's newest `checkpoint_<step>/` directory.
-- In the CelebA-HQ notebooks, the final Stage 2 train/resume cell now points `--data-path` at `/kaggle/working/celebahq256_imgfolder`, keeps `eval.data_path` on the exported `val` split, and enables `training.log_rae_latent_stats=true` plus `training.log_activation_stats=true` by default so wandb shows latent RMS/variance and SiTDH activation RMS/variance during training.
+- In the CelebA-HQ notebooks, the final Stage 2 train/resume cell now points `--data-path` at `/kaggle/working/celebahq256_imgfolder`, keeps `eval.data_path` on the exported `val` split, enables `training.log_rae_latent_stats=true` plus `training.log_activation_stats=true` by default, and also sets `training.prefetch_factor=8` with `eval.prefetch_factor=4` for the TPU variants so the host loader can queue batches more aggressively.
 
 Current limitation:
 

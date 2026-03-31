@@ -155,10 +155,12 @@ python3 src_jax/train.py \
   --wandb
 \end{lstlisting}
 
-Trên Kaggle TPU, nên thêm \texttt{--set training.num\_workers=1} để backend
-PyTorch loader vẫn tương thích với \texttt{persistent\_workers=True} mà không
-\texttt{fork()} cả một pool worker lớn sau khi JAX đã khởi tạo runtime đa
-luồng. Adapter cũng tự tắt backend TensorBoard summary writer trên Kaggle và
+Trên Kaggle TPU, nên bắt đầu với \texttt{--set training.num\_workers=1}, rồi
+tăng \texttt{--set training.prefetch\_factor=<n>} trước khi nhảy thẳng sang một
+pool worker lớn. Cách này vẫn giữ backend PyTorch loader tương thích với
+\texttt{persistent\_workers=True} sau khi JAX đã khởi tạo runtime đa luồng,
+nhưng cho phép host queue trước nhiều batch hơn để giảm các spike do I/O và
+decode. Adapter cũng tự tắt backend TensorBoard summary writer trên Kaggle và
 giữ metric ở stdout cùng wandb.
 
 Điểm quan trọng:
@@ -180,6 +182,9 @@ ví dụ \texttt{train\_sitdh\_output\_rms},
 \texttt{train\_sitdh\_act\_enc\_00\_rms}, và
 \texttt{train\_sitdh\_act\_dec\_01\_var}. Bù lại, các metric activation này có
 chi phí throughput và bộ nhớ rõ rệt hơn train loop mặc định.
+Nếu cần giảm độ trễ host-side, có thể override thêm
+\texttt{training.prefetch\_factor} và \texttt{eval.prefetch\_factor}; các key
+này được adapter forward thẳng sang \texttt{DataLoader} của đường JAX.
 
 \subsection{Wandb logging}
 

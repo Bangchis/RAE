@@ -158,6 +158,66 @@ def _build_backend_eval_dataset(trainer: Any, config: Any) -> Any | None:
     return trainer.local_imagenet_dataset.datasets.ImageFolder(root=str(eval_root), transform=transform)
 
 
+def _resolve_prefetch_factor(raw: Any, *, num_workers: int) -> int | None:
+    if num_workers <= 0:
+        return None
+    if raw is None:
+        return 2
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("prefetch_factor must be greater than 0 when num_workers > 0.")
+    return value
+
+
+def _build_backend_train_loader(trainer: Any, config: Any, dataset: Any, *, offset_seed: int) -> Any:
+    import torch
+
+    batch_size = int(config.data.batch_size)
+    local_batch_size = batch_size // max(1, trainer.jax.process_count())
+    num_workers = int(config.data.num_workers)
+    if num_workers < 0:
+        raise ValueError("training.num_workers must be non-negative.")
+
+    sampler = trainer.local_imagenet_dataset.InfiniteSampler(
+        dataset,
+        num_replicas=max(1, trainer.jax.process_count()),
+        rank=trainer.jax.process_index(),
+        shuffle=True,
+        seed=int(config.data.seed),
+    )
+
+    rng_torch = torch.Generator()
+    rng_torch.manual_seed(offset_seed)
+
+    loader_kwargs: dict[str, Any] = {
+        "dataset": dataset,
+        "sampler": sampler,
+        "batch_size": local_batch_size,
+        "num_workers": num_workers,
+        "pin_memory": True,
+        "drop_last": True,
+        "generator": rng_torch,
+    }
+    if num_workers > 0:
+        loader_kwargs.update(
+            {
+                "worker_init_fn": functools.partial(
+                    trainer.local_imagenet_dataset.seed_worker,
+                    offset_seed=offset_seed,
+                    global_seed=int(config.data.seed_pt),
+                ),
+                "persistent_workers": True,
+                "timeout": 1800.0,
+                "prefetch_factor": _resolve_prefetch_factor(
+                    config.data.get("prefetch_factor"),
+                    num_workers=num_workers,
+                ),
+            }
+        )
+
+    return torch.utils.data.DataLoader(**loader_kwargs)
+
+
 def _build_backend_eval_loader(trainer: Any, config: Any, dataset: Any) -> Any:
     import torch
 
@@ -169,30 +229,38 @@ def _build_backend_eval_loader(trainer: Any, config: Any, dataset: Any) -> Any:
     num_workers = int(config.eval.get("num_workers", config.data.num_workers))
     if num_workers < 0:
         raise ValueError("eval.num_workers must be non-negative.")
+    prefetch_factor = _resolve_prefetch_factor(
+        config.eval.get("prefetch_factor", config.data.get("prefetch_factor")),
+        num_workers=num_workers,
+    )
 
     process_index = trainer.jax.process_index()
     process_count = max(1, trainer.jax.process_count())
     local_indices = list(range(process_index, len(dataset), process_count))
     subset = torch.utils.data.Subset(dataset, local_indices)
-    worker_init_fn = None
+    loader_kwargs: dict[str, Any] = {
+        "dataset": subset,
+        "batch_size": local_batch_size,
+        "shuffle": False,
+        "num_workers": num_workers,
+        "pin_memory": True,
+        "drop_last": False,
+    }
     if num_workers > 0:
-        worker_init_fn = functools.partial(
-            trainer.local_imagenet_dataset.seed_worker,
-            offset_seed=0,
-            global_seed=int(config.data.seed_pt),
+        loader_kwargs.update(
+            {
+                "worker_init_fn": functools.partial(
+                    trainer.local_imagenet_dataset.seed_worker,
+                    offset_seed=0,
+                    global_seed=int(config.data.seed_pt),
+                ),
+                "persistent_workers": True,
+                "timeout": 60.0,
+                "prefetch_factor": prefetch_factor,
+            }
         )
 
-    return torch.utils.data.DataLoader(
-        subset,
-        batch_size=local_batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=False,
-        worker_init_fn=worker_init_fn,
-        persistent_workers=num_workers > 0,
-        timeout=60.0 if num_workers > 0 else 0.0,
-    )
+    return torch.utils.data.DataLoader(**loader_kwargs)
 
 
 def _metric_tree_to_host(metric_dict: Any) -> dict[str, float]:
@@ -404,7 +472,7 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
 
         step = 0 if restore_step is None else restore_step
 
-        loader = trainer.local_imagenet_dataset.build_imagenet_loader(config, dataset, offset_seed=step)
+        loader = _build_backend_train_loader(trainer, config, dataset, offset_seed=step)
         eval_dataset = _build_backend_eval_dataset(trainer, config)
         eval_loader = _build_backend_eval_loader(trainer, config, eval_dataset) if eval_dataset is not None else None
 
