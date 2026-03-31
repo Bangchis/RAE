@@ -59,7 +59,7 @@ hf download nyu-visionx/RAE-collections --local-dir models
 
 ### Dataset Format
 
-All current dataset-consuming scripts assume an `ImageFolder` layout:
+All current dataset-consuming scripts still assume an `ImageFolder` layout:
 
 ```text
 dataset_root/
@@ -69,10 +69,11 @@ dataset_root/
     0002.png
 ```
 
-For unlabeled one-class datasets, you still need one subdirectory, for example:
+For unlabeled one-class datasets, you still need one subdirectory, for example
+after exporting TFDS `celeb_a_hq/256`:
 
 ```text
-celeba256_imgfolder/
+celebahq256_imgfolder/
   train/
     face/
       ...
@@ -416,24 +417,31 @@ python3 src_jax/reconstruct_folder.py \
 This is the simplest way to export a validation reconstruction set before
 building FID references or comparing Stage 1 decoder changes.
 
-### Kaggle CelebA Notebook
+### Kaggle CelebA-HQ Notebook
 
-Use [../raes-jax-celeba-kaggle.ipynb](../raes-jax-celeba-kaggle.ipynb) when you
-want the standard Kaggle-style workflow end to end:
+Use [../raes-jax-celebahq-kaggle.ipynb](../raes-jax-celebahq-kaggle.ipynb) when
+you want the standard Kaggle-style workflow end to end:
 
-- clone the repo and checkout `jax-sit-dh`
+- clone the repo and checkout `jax-sit-dh-celebahq256`
 - set `UV_PROJECT_ENVIRONMENT=/tmp/.venv` and `UV_CACHE_DIR=/tmp/uv-cache`
 - run `uv sync -q` from the repo root
 - run package-backed data/stat/reconstruction/train steps through `uv run`
-- convert CelebA into a real `256x256` `ImageFolder`
+- export TFDS `celeb_a_hq/256` into a real `256x256` `ImageFolder`
 - create the bootstrap identity stats file
-- compute Stage 1 latent stats for CelebA
+- compute Stage 1 latent stats for CelebA-HQ
 - export Stage 1 reconstructions and build validation FID stats
-- write a CelebA Stage 2 config and launch `src_jax/train.py`
+- write a CelebA-HQ Stage 2 config and launch `src_jax/train.py`
+
+The helper script behind that step is
+[`src_jax/export_celebahq_tfds.py`](../src_jax/export_celebahq_tfds.py). It
+still materializes the dataset into `ImageFolder`, because the current JAX
+training/runtime path has not been refactored to consume `tf.data` or TFDS
+directly. TFDS `celeb_a_hq` also requires the official manual tar files, so on
+Kaggle the notebooks expect them under `/kaggle/input/celebahq-tfds-manual/`.
 
 For Kaggle `TPU v5e-8`, use
-[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb).
-That copy fixes the Stage 2 CelebA variant to `SiTDH-S`, syncs the repo
+[../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).
+That copy fixes the Stage 2 CelebA-HQ variant to `SiTDH-S`, syncs the repo
 dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that
 Kaggle can reject before each JAX import, runs the TPU device check in a fresh
 Python process, keeps Stage 1 and Stage 2 on TPU, builds the JAX `fid_ref` with
@@ -441,9 +449,9 @@ the same backend detector used by online FID, and keeps the default checkpoint
 cadence at `210000` steps.
 
 If you want the same Kaggle TPU flow but with the `SiTDH-B` DH Stage 2 setup, use
-[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb).
+[../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb).
 That notebook keeps the same JAX/TPU workarounds and data prep, but writes the
-CelebA Stage 2 config as `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
+CelebA-HQ Stage 2 config as `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
 using the DH two-tower layout `hidden_size=[768, 2048]`, `depth=[12, 2]`,
 `num_heads=[12, 16]`, enabling `use_pos_embed`, disabling label dropout with
 `class_dropout_prob=0.0`, and keeping the same `210000`-step
@@ -451,7 +459,7 @@ checkpoint cadence.
 
 If you already have an Orbax run directory for `SiTDH-B` and want to continue
 training from its latest checkpoint, use
-[../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb](../raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb).
+[../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb).
 That notebook is intentionally stripped down for the common Kaggle resume case
 where you start from the archived output of the previous notebook. Its first
 cell runs `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip
@@ -459,7 +467,7 @@ cell runs `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip
 runs `uv sync`, applies the `jaxlib` executable-stack fix, loads the Kaggle
 secret, runs a path sanity-check for the restored dataset/FID/workdir files,
 and finishes with `src_jax/train.py --workdir ...`. The notebook first locates
-the newest `CelebA256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run directory under
+the newest `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run directory under
 `/kaggle/working/results_jax_tpu/`, then both the shell pre-check and the
 runtime work from the newest `checkpoint_<step>` directory available under that
 workdir, so the notebook no longer hardcodes either the timestamped run folder

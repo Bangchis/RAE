@@ -115,23 +115,26 @@ python3 src_jax/train.py \
   \texttt{src\_jax/build\_stage1\_stats.py} và \texttt{src\_jax/reconstruct\_folder.py}.
   Các lệnh này có thể dùng YAML chỉ có \texttt{stage\_1}, không cần
   \texttt{stage\_2.target}.
-  \item Nếu chạy trên Kaggle với CelebA, bắt đầu từ notebook
-  \texttt{raes-jax-celeba-kaggle.ipynb} để giữ đúng flow clone repo, đặt
+  \item Nếu chạy trên Kaggle với CelebA-HQ, bắt đầu từ notebook
+  \texttt{raes-jax-celebahq-kaggle.ipynb} để giữ đúng flow clone repo, đặt
   \texttt{UV\_PROJECT\_ENVIRONMENT=/tmp/.venv} và
-  \texttt{UV\_CACHE\_DIR=/tmp/uv-cache}, chạy \texttt{uv sync -q}, rồi chạy các
-  bước phụ thuộc package qua \texttt{uv run}.
+  \texttt{UV\_CACHE\_DIR=/tmp/uv-cache}, chạy \texttt{uv sync -q}, export TFDS
+  \texttt{celeb\_a\_hq/256} sang \texttt{ImageFolder} bằng
+  \texttt{src\_jax/export\_celebahq\_tfds.py}, rồi chạy các bước phụ thuộc
+  package qua \texttt{uv run}. TFDS này vẫn cần các tar file manual chính thức.
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb}; bản này cố định biến
+  \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb}; bản này cố định biến
   thể Stage 2 là \texttt{SiTDH-S}, chuyển FID và build reference stats sang
   detector backend-native của JAX, đồng thời cũng sync dependency của repo vào
   \texttt{/tmp/.venv} trước các bước \texttt{uv run}, tự xóa cờ executable-stack mà
   Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra \texttt{jax}/TPU bằng
-  tiến trình Python mới. Notebook này cũng đã bỏ override chẩn đoán
+  tiến trình Python mới. Notebook này cũng export TFDS \texttt{celeb\_a\_hq/256}
+  sang \texttt{ImageFolder} trước khi build Stage 1 stat, và đã bỏ override chẩn đoán
   \texttt{ema\_decay=0.99} và giữ mốc checkpoint mặc định ở \texttt{210000}
   step, nên mặc định quay lại EMA chuẩn của config.
   \item Nếu cần cùng flow Kaggle TPU đó nhưng muốn train biến thể
   \texttt{SiTDH-B}, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb}. Bản này giữ toàn bộ
+  \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb}. Bản này giữ toàn bộ
   fix Kaggle/JAX hiện có, đổi Stage 2 sang recipe DH/two-tower
   \texttt{SiTDH-B} với \texttt{hidden\_size=[768, 2048]},
   \texttt{depth=[12, 2]}, \texttt{num\_heads=[12, 16]},
@@ -139,13 +142,13 @@ python3 src_jax/train.py \
   cùng cadence checkpoint \texttt{210000} step.
   \item Nếu đã có sẵn một run Orbax của \texttt{SiTDH-B} và cần train tiếp từ
   checkpoint hiện có, dùng notebook
-  \texttt{raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb}. Notebook này
+  \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb}. Notebook này
   là bản resume-only tối giản cho trường hợp bắt đầu từ output archive của
   notebook cũ: cell đầu chạy lệnh \texttt{unzip -o
   /kaggle/input/notebooks/kieuhongquan/rae-jax/\_output\_.zip -d
   /kaggle/working}, sau đó chỉ kiểm tra repo đã có sẵn, chạy \texttt{uv sync},
   lấy secret wandb, kiểm tra path, rồi tự tìm thư mục run
-  \texttt{CelebA256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
+  \texttt{CelebAHQ256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
   \texttt{/kaggle/working/results\_jax\_tpu/} và thư mục
   \texttt{checkpoint\_<step>/} mới nhất trong workdir đó trước khi truyền
   \texttt{--workdir} vào \texttt{src\_jax/train.py}. Runtime cũng tiếp

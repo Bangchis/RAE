@@ -98,6 +98,7 @@ dependencies = [
     "tensorboard==2.20.0",
     "tensorboard-data-server==0.7.2",
     "tensorflow==2.21.0",
+    "tensorflow-datasets==4.9.9",
     "tensorstore==0.1.78",
     "termcolor==3.3.0",
     "timm==0.9.16",

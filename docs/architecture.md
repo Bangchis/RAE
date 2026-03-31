@@ -120,6 +120,9 @@ the TPU loop.
   reconstruct an image folder through the JAX RAE path
 - [src_jax/build_stage1_stats.py](../src_jax/build_stage1_stats.py):
   compute dataset-specific Stage 1 latent normalization stats
+- [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
+  export TFDS `celeb_a_hq/256` into the `ImageFolder` layout still expected by
+  the current JAX training notebooks
 
 ### FID Utilities
 
@@ -149,6 +152,9 @@ The JAX path is intentionally kept thin:
   integration, and FID glue for both EMA and optional online-model diagnostics
 - [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
   shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
+- [src_jax/export_celebahq_tfds.py](../src_jax/export_celebahq_tfds.py):
+  prepares the manual TFDS CelebA-HQ source into a repo-compatible
+  `ImageFolder` tree for Kaggle and local JAX workflows
 - [src_jax/hf_utils.py](../src_jax/hf_utils.py): Hugging Face upload
   helpers for finished workdirs or checkpoint folders
 
@@ -224,6 +230,7 @@ src_jax/
   stage2_runtime.py
   stage1_runtime.py
   build_stage1_stats.py
+  export_celebahq_tfds.py
   reconstruct_folder.py
   hf_utils.py
   train.py
@@ -231,10 +238,10 @@ src_jax/
   sample_ddp.py
   stage1_sample.py
   push_hf.py
-raes-jax-celeba-kaggle.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-sitdh-s.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-sitdh-b.ipynb
-raes-jax-celeba-kaggle-tpuv5e8-sitdh-b-resume.ipynb
+raes-jax-celebahq-kaggle.ipynb
+raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb
+raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb
+raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb
 ```
 
 ## Checkpoint Compatibility

@@ -126,7 +126,7 @@ Common fields:
 - `params.depth`: encoder and decoder block counts
 - `params.num_heads`: encoder and decoder attention head counts
 - `params.class_dropout_prob`: classifier-free label dropout rate; for the
-  single-class CelebA JAX notebooks this is set to `0.0`
+  single-class CelebA-HQ JAX notebooks this is set to `0.0`
 - feature toggles such as `use_rope`, `use_rmsnorm`, `use_swiglu`, and
   `use_pos_embed`
 
