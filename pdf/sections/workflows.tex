@@ -172,6 +172,15 @@ giữ metric ở stdout cùng wandb.
   trước đó.
 \end{itemize}
 
+Nếu bật \texttt{training.log\_rae\_latent\_stats=true}, train loop JAX sẽ log
+\texttt{train\_rae\_latent\_rms} và \texttt{train\_rae\_latent\_var}. Nếu bật
+\texttt{training.log\_activation\_stats=true}, backend sẽ trả thêm intermediate
+feature của SiTDH để log RMS/variance cho output và từng block encoder/decoder,
+ví dụ \texttt{train\_sitdh\_output\_rms},
+\texttt{train\_sitdh\_act\_enc\_00\_rms}, và
+\texttt{train\_sitdh\_act\_dec\_01\_var}. Bù lại, các metric activation này có
+chi phí throughput và bộ nhớ rõ rệt hơn train loop mặc định.
+
 \subsection{Wandb logging}
 
 Biến môi trường khuyến nghị:
@@ -292,7 +301,7 @@ file manual chính thức và vẫn ép
 protobuf trong môi trường không đồng nhất.
 
 Cell train Stage 2 cuối của các notebook CelebA-HQ truyền
-\texttt{--data-path /kaggle/working/celebahq256\_imgfolder/train}, còn
+\texttt{--data-path /kaggle/working/celebahq256\_imgfolder}, còn
 \texttt{eval.data\_path} trong config sinh ra vẫn trỏ tới split
 \texttt{val}.
 

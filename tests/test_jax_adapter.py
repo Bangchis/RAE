@@ -115,6 +115,50 @@ class JaxAdapterTests(unittest.TestCase):
         self.assertEqual(backend_cfg["network"]["encoder_num_heads"], 6)
         self.assertEqual(backend_cfg["network"]["decoder_num_heads"], 16)
 
+    def test_train_data_dir_normalizes_split_path_back_to_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "celebahq256_imgfolder"
+            for split_name in ("train", "val", "test"):
+                (root / split_name / "face").mkdir(parents=True, exist_ok=True)
+
+            repo_cfg, config_path = load_repo_config(
+                "configs/stage2/training/ImageNet256/SiTDH-S_DINOv2-B.yaml",
+            )
+            backend_cfg = build_backend_config_dict(
+                repo_cfg,
+                config_path=config_path,
+                mode="train",
+                data_path=str(root / "train"),
+                precision="bf16",
+                seed=7,
+                num_train_samples=1281167,
+                enable_eval=False,
+            )
+
+            self.assertEqual(backend_cfg["data"]["data_dir"], str(root.resolve()))
+
+    def test_training_diagnostics_flags_are_forwarded(self) -> None:
+        repo_cfg, config_path = load_repo_config(
+            "configs/stage2/training/ImageNet256/SiTDH-S_DINOv2-B.yaml",
+            overrides=[
+                "training.log_rae_latent_stats=true",
+                "training.log_activation_stats=true",
+            ],
+        )
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=config_path,
+            mode="train",
+            data_path="/tmp/imagenet",
+            precision="bf16",
+            seed=7,
+            num_train_samples=1281167,
+            enable_eval=False,
+        )
+
+        self.assertTrue(backend_cfg["diagnostics"]["log_rae_latent_stats"])
+        self.assertTrue(backend_cfg["diagnostics"]["log_activation_stats"])
+
 
 if __name__ == "__main__":
     unittest.main()

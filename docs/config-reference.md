@@ -260,6 +260,8 @@ training:
   decay_start_epoch: 40
   decay_end_epoch: 800
   clip_grad: 1.0
+  log_rae_latent_stats: false
+  log_activation_stats: false
 ```
 
 Notes:
@@ -269,6 +271,14 @@ Notes:
   `global_batch_size / (world_size * grad_accum_steps)`
 - optimizer defaults to AdamW
 - scheduler supports `linear` and `cosine`
+- `log_rae_latent_stats: true` makes the JAX path log RMS and variance of the
+  Stage 1 RAE latents actually fed into Stage 2 as `train_rae_latent_rms` and
+  `train_rae_latent_var`
+- `log_activation_stats: true` makes the JAX path ask the backend SiT/SiTDH
+  network for intermediate activations and log RMS/variance for the Stage 2
+  output plus each encoder/decoder block activation, for example
+  `train_sitdh_output_rms`, `train_sitdh_act_enc_00_rms`, and
+  `train_sitdh_act_dec_01_var`
 - nested `optimizer` and `scheduler` sub-blocks are also supported by
   `src/utils/optim_utils.py`
 
@@ -278,6 +288,8 @@ The JAX adapter also accepts CLI overrides in the form:
 python3 src_jax/train.py \
   --config <config> \
   --set training.global_batch_size=256 \
+  --set training.log_rae_latent_stats=true \
+  --set training.log_activation_stats=true \
   --set guidance.scale=1.5
 ```
 

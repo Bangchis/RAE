@@ -202,6 +202,24 @@ def _metric_tree_to_host(metric_dict: Any) -> dict[str, float]:
     return {key: float(np.asarray(value)) for key, value in host_metrics.items()}
 
 
+def _set_intermediate_feature_logging(model: Any, enabled: bool) -> None:
+    if hasattr(model, "ema"):
+        model = model.ema
+    interface = model.interface if hasattr(model, "interface") else model
+    network = getattr(interface, "network", None)
+    if network is not None and hasattr(network, "return_intermediate_features"):
+        network.return_intermediate_features = bool(enabled)
+
+
+def _build_sitdh_activation_names(num_encoder_blocks: int, num_decoder_blocks: int) -> list[tuple[str, int]]:
+    names: list[tuple[str, int]] = []
+    for idx in range(num_encoder_blocks):
+        names.append(("enc", idx))
+    for idx in range(num_decoder_blocks):
+        names.append(("dec", idx))
+    return names
+
+
 def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
     original_train_and_evaluate = trainer.train_and_evaluate
 
@@ -290,7 +308,13 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
         return summary
 
     def patched_train_and_evaluate(config: Any, workdir: str):
-        if not config.eval.get("loss_on"):
+        diagnostics_cfg = config.get("diagnostics", {})
+        log_rae_latent_stats = bool(diagnostics_cfg.get("log_rae_latent_stats", False))
+        log_activation_stats = bool(diagnostics_cfg.get("log_activation_stats", False))
+        num_encoder_blocks = int(config.network.get("num_encoder_blocks", 0))
+        num_decoder_blocks = int(config.network.get("num_decoder_blocks", 0))
+        activation_names = _build_sitdh_activation_names(num_encoder_blocks, num_decoder_blocks)
+        if not config.eval.get("loss_on") and not log_rae_latent_stats and not log_activation_stats:
             return original_train_and_evaluate(config, workdir)
 
         image_size = config.data.image_size
@@ -431,8 +455,94 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
         train_metrics_last_t = time.time()
         loader_iter = iter(loader)
 
+        def diag_stat_rms(x: Any) -> Any:
+            x = trainer.jnp.asarray(x, dtype=trainer.jnp.float32)
+            return trainer.jnp.sqrt(trainer.jnp.mean(trainer.jnp.square(x)))
+
+        def diag_stat_var(x: Any) -> Any:
+            x = trainer.jnp.asarray(x, dtype=trainer.jnp.float32)
+            return trainer.jnp.var(x)
+
+        def patched_train_step(
+            state: Any,
+            ema_state: Any,
+            batch: Any,
+            graph: Any,
+            ema_graph: Any,
+        ):
+            optimizer = trainer.nnx.merge(graph, state)
+            ema = trainer.nnx.merge(ema_graph, ema_state)
+            model = optimizer.model
+
+            latents, labels = batch["latents"], batch["labels"]
+
+            def loss_fn(model):
+                if log_activation_stats:
+                    if "features" in batch:
+                        loss_vec, net_out, intermediate_features = model(
+                            latents,
+                            batch["features"],
+                            y=labels,
+                            return_aux=True,
+                        )
+                    else:
+                        loss_vec, net_out, intermediate_features = model(
+                            latents,
+                            y=labels,
+                            return_aux=True,
+                        )
+                    loss_dict = {"loss": loss_vec}
+                else:
+                    if "features" in batch:
+                        loss_dict = model(latents, batch["features"], y=labels)
+                    else:
+                        loss_dict = model(latents, y=labels)
+                    net_out = None
+                    intermediate_features = ()
+
+                metric_dict = {}
+                if log_rae_latent_stats:
+                    metric_dict["rae_latent_rms"] = diag_stat_rms(latents)
+                    metric_dict["rae_latent_var"] = diag_stat_var(latents)
+                if log_activation_stats:
+                    metric_dict["sitdh_output_rms"] = diag_stat_rms(net_out)
+                    metric_dict["sitdh_output_var"] = diag_stat_var(net_out)
+                    for (stage_name, block_idx), feature in zip(
+                        activation_names,
+                        intermediate_features,
+                        strict=False,
+                    ):
+                        metric_dict[f"sitdh_act_{stage_name}_{block_idx:02d}_rms"] = diag_stat_rms(feature)
+                        metric_dict[f"sitdh_act_{stage_name}_{block_idx:02d}_var"] = diag_stat_var(feature)
+                return loss_dict["loss"].mean(), (loss_dict, metric_dict)
+
+            grad_fn = trainer.nnx.value_and_grad(loss_fn, has_aux=True)
+            (loss, (loss_dict, extra_metric_dict)), grads = grad_fn(model)
+
+            optimizer.update(grads)
+
+            grad_norm = trainer.jax.tree_util.tree_reduce(
+                lambda a, b: a + b,
+                trainer.jax.tree_util.tree_map(lambda g: trainer.jnp.sum(trainer.jnp.square(g)), grads),
+                initializer=0.0,
+            )
+
+            if hasattr(model, "interface"):
+                ema.update(model.interface)
+            else:
+                ema.update(model)
+            metric_dict = {
+                loss_type: loss.mean() for loss_type, loss in loss_dict.items()
+            }
+            metric_dict.update(extra_metric_dict)
+            metric_dict["grad_norm"] = grad_norm
+
+            _, state = trainer.nnx.split(optimizer)
+            _, ema_state = trainer.nnx.split(ema)
+            return state, ema_state, metric_dict
+
         p_train_step = trainer.jax.jit(
-            trainer.train_step,
+            patched_train_step,
             out_shardings=(state_sharding, ema_state_sharding, repl_sharding),
             static_argnums=(3, 4),
             donate_argnums=(0, 1),
@@ -955,9 +1065,12 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
 
     original_build_models = init_utils.build_models
 
-    if backend_cfg_dict.get("torch_ckpt"):
-        def patched_build_models(config: Any):
-            encoder, model, optimizer, sampler, ema, learning_rate_fn = original_build_models(config)
+    def patched_build_models(config: Any):
+        encoder, model, optimizer, sampler, ema, learning_rate_fn = original_build_models(config)
+        log_activation_stats = bool(config.get("diagnostics", {}).get("log_activation_stats", False))
+        _set_intermediate_feature_logging(model, log_activation_stats)
+        _set_intermediate_feature_logging(ema, log_activation_stats)
+        if backend_cfg_dict.get("torch_ckpt"):
             _load_torch_weights_into_model(
                 torch_ckpt=backend_cfg_dict["torch_ckpt"],
                 config=config,
@@ -967,9 +1080,9 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
                 port_module=port_module,
                 torch=torch,
             )
-            return encoder, model, optimizer, sampler, ema, learning_rate_fn
+        return encoder, model, optimizer, sampler, ema, learning_rate_fn
 
-        init_utils.build_models = patched_build_models
+    init_utils.build_models = patched_build_models
 
     original_create_default_writer = _patch_backend_metric_writer_for_kaggle(trainer)
     original_train_and_evaluate = _patch_backend_train_loop_for_eval(trainer)

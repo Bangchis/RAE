@@ -116,6 +116,8 @@ training:
   beta: [0.9, 0.95]
   wd: 0.0
   schedule_type: linear
+  log_rae_latent_stats: false
+  log_activation_stats: false
 \end{lstlisting}
 
 Lưu ý:
@@ -125,7 +127,16 @@ Lưu ý:
   \texttt{total\_steps} từ \texttt{num\_train\_samples};
   \item optimizer mặc định vẫn là AdamW;
   \item scheduler được chuẩn hóa về các mode đơn giản như
-  \texttt{constant}, \texttt{linear}, \texttt{cosine}.
+  \texttt{constant}, \texttt{linear}, \texttt{cosine};
+  \item nếu bật \texttt{log\_rae\_latent\_stats=true}, đường JAX sẽ log
+  \texttt{train\_rae\_latent\_rms} và \texttt{train\_rae\_latent\_var} cho
+  latent RAE thực sự đi vào Stage 2;
+  \item nếu bật \texttt{log\_activation\_stats=true}, đường JAX sẽ yêu cầu
+  backend trả intermediate feature rồi log RMS/variance cho output của SiTDH
+  và từng block encoder/decoder, ví dụ
+  \texttt{train\_sitdh\_output\_rms},
+  \texttt{train\_sitdh\_act\_enc\_00\_rms}, và
+  \texttt{train\_sitdh\_act\_dec\_01\_var}.
 \end{itemize}
 
 \subsection{Block \texttt{eval}}
@@ -150,6 +161,8 @@ Các entrypoint JAX cho phép override nhanh bằng:
 python3 src_jax/train.py \
   --config <config> \
   --set training.global_batch_size=256 \
+  --set training.log_rae_latent_stats=true \
+  --set training.log_activation_stats=true \
   --set guidance.scale=1.5
 \end{lstlisting}
 

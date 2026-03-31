@@ -229,6 +229,7 @@ and add `--wandb` to the training command.
 Stage 2 training now logs the following namespaces:
 
 - `train/*`: loss, learning rate, optimizer steps/sec, images/sec, epoch, and gradient norm when clipping is enabled.
+- `train/*` on the JAX path can additionally log latent and activation diagnostics when you enable `training.log_rae_latent_stats=true` and `training.log_activation_stats=true`, for example `train_rae_latent_rms`, `train_rae_latent_var`, `train_sitdh_output_rms`, `train_sitdh_output_var`, `train_sitdh_act_enc_00_rms`, and `train_sitdh_act_dec_01_var`.
 - `eval/*`: periodic validation loss on a held-out `ImageFolder` split
   (`eval/ema_loss` by default, plus `eval/model_loss` when enabled), together
   with duration/batch counters for each validation pass.
@@ -347,11 +348,12 @@ Key behavior:
 - `ENTITY` / `PROJECT` / `WANDB_KEY` are bridged to the `WANDB_*` variables expected by the JAX backend.
 - `--hf-repo-id` on `src_jax/train.py` uploads the finished workdir directly to Hugging Face.
 - `src_jax/build_fid_stats.py` builds backend-native `fid_ref` files with the same Flax Inception detector used by JAX online FID.
+- `training.log_rae_latent_stats=true` makes the JAX train loop log RMS and variance of the Stage 1 RAE latents actually consumed by Stage 2, while `training.log_activation_stats=true` logs RMS and variance for the SiTDH output and each encoder/decoder activation block.
 - `raes-jax-celebahq-kaggle.ipynb` mirrors the standard Kaggle workflow end to end for CelebA-HQ, but now points `UV_PROJECT_ENVIRONMENT` to `/tmp/.venv`, caches wheels under `/tmp/uv-cache`, runs `uv sync -q` against the repo `pyproject.toml`, downloads `eurecom-ds/celeba-hq-256` from Hugging Face into `/kaggle/working/hf_datasets_cache`, exports it into `/kaggle/working/celebahq256_imgfolder`, and keeps package-backed steps inside `uv run` instead of relying on the notebook kernel interpreter.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb` copies that flow for `TPU v5e-8`, fixes the Stage 2 CelebA-HQ variant explicitly to `SiTDH-S`, disables label dropout for the single-class setup by setting `class_dropout_prob=0.0`, syncs the repo dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that Kaggle can reject, verifies TPU visibility in a fresh Python process, builds the JAX `fid_ref` with the same backend detector used during online FID, and keeps the default Stage 2 checkpoint cadence at `210000` steps.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb` is the `TPU v5e-8` sibling notebook for the DH/two-tower `SiTDH-B` Stage 2 recipe, reusing the same Kaggle/JAX flow while writing a `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml` config, setting `hidden_size=[768, 2048]`, `depth=[12, 2]`, `num_heads=[12, 16]`, enabling `use_pos_embed`, disabling label dropout with `class_dropout_prob=0.0`, and keeping the same `210000`-step checkpoint cadence.
 - `raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b-resume.ipynb` is now a stripped-down resume-only notebook: it first runs the old notebook archive extraction command `unzip -o /kaggle/input/notebooks/kieuhongquan/rae-jax/_output_.zip -d /kaggle/working`, then keeps only the minimal repo check, `uv sync`, Kaggle secret, path sanity check, and `src_jax/train.py --workdir ...` cells needed to locate the newest `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8-*` run under `/kaggle/working/results_jax_tpu/` and restore `latest_step()` from that run's newest `checkpoint_<step>/` directory.
-- In the CelebA-HQ notebooks, the final Stage 2 train/resume cell now points `--data-path` at `/kaggle/working/celebahq256_imgfolder/train`, while `eval.data_path` continues to point at the exported `val` split.
+- In the CelebA-HQ notebooks, the final Stage 2 train/resume cell now points `--data-path` at `/kaggle/working/celebahq256_imgfolder`, keeps `eval.data_path` on the exported `val` split, and enables `training.log_rae_latent_stats=true` plus `training.log_activation_stats=true` by default so wandb shows latent RMS/variance and SiTDH activation RMS/variance during training.
 
 Current limitation:
 

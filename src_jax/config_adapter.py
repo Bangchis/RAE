@@ -50,6 +50,24 @@ def resolve_repo_value(raw: Any, *, config_path: Path) -> Any:
     return raw
 
 
+def normalize_training_data_dir(raw: Any, *, config_path: Path) -> Any:
+    resolved = resolve_repo_value(raw, config_path=config_path)
+    if resolved is None or not isinstance(resolved, str):
+        return resolved
+
+    path = Path(resolved)
+    if path.name not in {"train", "val", "test"}:
+        return resolved
+
+    parent = path.parent
+    if not parent.exists():
+        return resolved
+
+    if any((parent / split_name).is_dir() for split_name in ("train", "val", "test")):
+        return str(parent.resolve())
+    return resolved
+
+
 def parse_guidance_value(cfg: dict[str, Any], key: str, default: float) -> float:
     if key in cfg:
         return float(cfg[key])
@@ -186,6 +204,10 @@ def build_backend_config_dict(
     fid_num_samples = int(eval_cfg.get("fid_num_samples", 0))
     loss_on = bool(eval_data_dir) and eval_every > 0
     fid_on = bool(eval_cfg.get("fid_ref")) and fid_num_samples > 0
+    log_rae_latent_stats = bool(training_cfg.get("log_rae_latent_stats", False))
+    log_activation_stats = bool(training_cfg.get("log_activation_stats", False))
+
+    train_data_dir = normalize_training_data_dir(data_path or eval_cfg.get("data_path"), config_path=config_path)
 
     backend_cfg: dict[str, Any] = {
         "trainer": "DiT_ImageNet",
@@ -198,8 +220,12 @@ def build_backend_config_dict(
         "log_every_steps": int(training_cfg.get("log_every", 100)),
         "save_every_steps": int(training_cfg.get("ckpt_every", 5_000)),
         "visualize_every_steps": int(training_cfg.get("sample_every", 10_000)),
+        "diagnostics": {
+            "log_rae_latent_stats": log_rae_latent_stats,
+            "log_activation_stats": log_activation_stats,
+        },
         "data": {
-            "data_dir": resolve_repo_value(data_path or eval_cfg.get("data_path"), config_path=config_path),
+            "data_dir": train_data_dir,
             "stat_dir": maybe_convert_fid_reference(resolve_repo_value(eval_cfg.get("fid_ref"), config_path=config_path)),
             "batch_size": batch_size,
             "image_size": resolved_image_size,

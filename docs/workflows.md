@@ -224,6 +224,13 @@ Current Stage 2 namespaces:
 - `ema_network_samples`
 - `sample/duration_sec`
 
+If you enable `training.log_rae_latent_stats: true`, the JAX path also logs
+`train_rae_latent_rms` and `train_rae_latent_var`.
+If you enable `training.log_activation_stats: true`, it additionally logs
+`train_sitdh_output_rms`, `train_sitdh_output_var`, and one RMS/variance pair
+per encoder/decoder block such as `train_sitdh_act_enc_00_rms` and
+`train_sitdh_act_dec_01_var`.
+
 Only the master rank initializes and logs to wandb.
 
 ## 6. Validation Loss During Training
@@ -445,8 +452,14 @@ Python protobuf runtime before importing TFDS to avoid the common Kaggle
 descriptor crash.
 
 The final Stage 2 train cells in the CelebA-HQ notebooks pass
-`--data-path /kaggle/working/celebahq256_imgfolder/train`, while the generated
+`--data-path /kaggle/working/celebahq256_imgfolder`, while the generated
 config keeps `eval.data_path` on `/kaggle/working/celebahq256_imgfolder/val`.
+Those notebook train/resume cells also enable
+`--set training.log_rae_latent_stats=true` and
+`--set training.log_activation_stats=true` by default so wandb exposes latent
+and activation RMS/variance during the run. Expect a measurable throughput and
+memory cost when activation logging is enabled, because the backend now returns
+intermediate SiTDH features on every train step.
 
 For Kaggle `TPU v5e-8`, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb).
