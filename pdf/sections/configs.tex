@@ -109,6 +109,7 @@ training:
   ema_decay: 0.9995
   num_workers: 4
   prefetch_factor: 2
+  random_flip: true
   log_every: 100
   ckpt_every: 5000
   sample_every: 10000
@@ -132,6 +133,10 @@ Lưu ý:
   \item nếu \texttt{num\_workers > 0}, có thể tăng
   \texttt{prefetch\_factor} để queue trước nhiều batch hơn ở host-side
   PyTorch loader của đường JAX mà không đụng tới backend checkout;
+  \item \texttt{random\_flip} điều khiển việc chèn
+  \texttt{RandomHorizontalFlip()} trước Stage 1 encode trên raw-image path;
+  các config CelebA-HQ của branch này mặc định bật nó cho train nếu không
+  override lại;
   \item nếu bật \texttt{log\_rae\_latent\_stats=true}, đường JAX sẽ log
   \texttt{train\_rae\_latent\_rms} và \texttt{train\_rae\_latent\_var} cho
   latent RAE thực sự đi vào Stage 2;
@@ -147,8 +152,8 @@ Lưu ý:
 
 Đường JAX giờ dùng block \texttt{eval} cho cả validation loss lẫn online FID.
 Các key \texttt{data\_path}, \texttt{eval\_every}, \texttt{batch\_size},
-\texttt{num\_workers}, \texttt{prefetch\_factor}, \texttt{max\_batches}, và
-\texttt{eval\_model} sẽ điều khiển held-out validation loop trong
+\texttt{num\_workers}, \texttt{prefetch\_factor}, \texttt{random\_flip},
+\texttt{max\_batches}, và \texttt{eval\_model} sẽ điều khiển held-out validation loop trong
 \texttt{src\_jax/train.py}. Với
 \texttt{fid\_ref}, nên ưu tiên file \texttt{.pkl}/\texttt{.pickle} được build
 bởi \texttt{src\_jax/build\_fid\_stats.py}; nếu đưa file \texttt{.npz} cũ vào,

@@ -18,6 +18,13 @@ except ModuleNotFoundError as exc:
 
 @unittest.skipIf(_IMPORT_ERROR is not None, f"Missing optional dependency: {_IMPORT_ERROR}")
 class JaxAdapterTests(unittest.TestCase):
+    def _write_temp_config(self, text: str, *, filename: str = "config.yaml") -> str:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        config_path = Path(temp_dir.name) / filename
+        config_path.write_text(text, encoding="utf-8")
+        return str(config_path)
+
     def test_build_backend_config_maps_sitdh_to_lightning_ddt(self) -> None:
         repo_cfg, config_path = load_repo_config("configs/stage2/training/ImageNet256/SiTDH-XL_DINOv2-B.yaml")
         backend_cfg = build_backend_config_dict(
@@ -182,6 +189,91 @@ class JaxAdapterTests(unittest.TestCase):
 
         self.assertEqual(backend_cfg["data"]["prefetch_factor"], 8)
         self.assertEqual(backend_cfg["eval"]["prefetch_factor"], 3)
+
+    def test_random_flip_flags_are_forwarded(self) -> None:
+        config_path = self._write_temp_config(
+            """
+stage_1:
+  target: stage1.RAE
+  params:
+    encoder_input_size: 256
+    decoder_patch_size: 16
+    normalization_stat_path: /tmp/stat.pt
+    pretrained_encoder_path: facebook/dinov2-base
+    pretrained_decoder_path: /tmp/decoder.ckpt
+stage_2:
+  target: stage2.models.SiT.SiTDH
+  params:
+    input_size: 16
+    patch_size: 1
+    in_channels: 768
+    hidden_size: [384, 2048]
+    depth: [12, 2]
+    num_heads: [6, 16]
+misc:
+  latent_size: [768, 16, 16]
+training:
+  random_flip: true
+eval:
+  data_path: /tmp/celebahq256/val
+  eval_every: 5000
+  random_flip: false
+""",
+            filename="CelebAHQ256_SiTDH-S_DINOv2-B.yaml",
+        )
+        repo_cfg, resolved_config_path = load_repo_config(config_path)
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=resolved_config_path,
+            mode="train",
+            data_path="/tmp/celebahq256_imgfolder",
+            precision="bf16",
+            seed=7,
+            num_train_samples=30_000,
+            enable_eval=True,
+        )
+
+        self.assertTrue(backend_cfg["data"]["random_flip"])
+        self.assertFalse(backend_cfg["eval"]["random_flip"])
+
+    def test_celebahq_configs_default_training_random_flip_to_true(self) -> None:
+        config_path = self._write_temp_config(
+            """
+stage_1:
+  target: stage1.RAE
+  params:
+    encoder_input_size: 256
+    decoder_patch_size: 16
+    normalization_stat_path: /tmp/stat.pt
+    pretrained_encoder_path: facebook/dinov2-base
+    pretrained_decoder_path: /tmp/decoder.ckpt
+stage_2:
+  target: stage2.models.SiT.SiTDH
+  params:
+    input_size: 16
+    patch_size: 1
+    in_channels: 768
+    hidden_size: [384, 2048]
+    depth: [12, 2]
+    num_heads: [6, 16]
+misc:
+  latent_size: [768, 16, 16]
+""",
+            filename="CelebAHQ256_SiTDH-B_DINOv2-B.yaml",
+        )
+        repo_cfg, resolved_config_path = load_repo_config(config_path)
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=resolved_config_path,
+            mode="train",
+            data_path="/tmp/celebahq256_imgfolder",
+            precision="bf16",
+            seed=7,
+            num_train_samples=30_000,
+            enable_eval=False,
+        )
+
+        self.assertTrue(backend_cfg["data"]["random_flip"])
 
 
 if __name__ == "__main__":

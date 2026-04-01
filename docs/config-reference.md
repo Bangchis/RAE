@@ -250,6 +250,7 @@ training:
   ema_decay: 0.9995
   num_workers: 4
   prefetch_factor: 2
+  random_flip: true
   log_every: 100
   ckpt_every: 5000
   sample_every: 10000
@@ -275,6 +276,9 @@ Notes:
 - `prefetch_factor` is forwarded to the host-side PyTorch `DataLoader` on the
   JAX Stage 2 path when `num_workers > 0`; increasing it can hide host I/O
   latency spikes without changing model compute
+- `random_flip` controls whether the raw-image JAX Stage 2 transform inserts a
+  `RandomHorizontalFlip()` before Stage 1 encoding; CelebA-HQ configs on this
+  branch default it to `true` for training unless you override it
 - `log_rae_latent_stats: true` makes the JAX path log RMS and variance of the
   Stage 1 RAE latents actually fed into Stage 2 as `train_rae_latent_rms` and
   `train_rae_latent_var`
@@ -312,6 +316,7 @@ eval:
   batch_size: 128
   num_workers: 4
   prefetch_factor: 2
+  random_flip: false
   max_batches: 32
   eval_model: false
 ```
@@ -324,6 +329,8 @@ Meaning:
 - `num_workers`: dataloader workers for eval
 - `prefetch_factor`: per-worker prefetch depth for the host-side eval loader on
   the JAX path; only applies when `num_workers > 0`
+- `random_flip`: whether to keep horizontal flips on the raw-image eval path;
+  the CelebA-HQ notebooks leave this disabled for validation and FID
 - `max_batches`: optional per-rank cap
 - `eval_model`: score the non-EMA model in addition to EMA
 

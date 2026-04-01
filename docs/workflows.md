@@ -459,6 +459,7 @@ The final Stage 2 train cells in the CelebA-HQ notebooks pass
 `--data-path /kaggle/working/celebahq256_imgfolder`, while the generated
 config keeps `eval.data_path` on `/kaggle/working/celebahq256_imgfolder/val`.
 Those notebook train/resume cells also enable
+`training.random_flip=true`, keep `eval.random_flip=false`, enable
 `--set training.log_rae_latent_stats=true` and
 `--set training.log_activation_stats=true` by default so wandb exposes latent
 and activation RMS/variance during the run. The TPU notebooks now also set
@@ -474,8 +475,9 @@ That copy fixes the Stage 2 CelebA-HQ variant to `SiTDH-S`, syncs the repo
 dependencies into `/tmp/.venv`, clears the `jaxlib` executable-stack flag that
 Kaggle can reject before each JAX import, runs the TPU device check in a fresh
 Python process, keeps Stage 1 and Stage 2 on TPU, builds the JAX `fid_ref` with
-the same backend detector used by online FID, and keeps the default checkpoint
-cadence at `210000` steps.
+the same backend detector used by online FID, enables
+`training.random_flip=true`, and keeps the default checkpoint cadence at
+`210000` steps.
 
 If you want the same Kaggle TPU flow but with the `SiTDH-B` DH Stage 2 setup, use
 [../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb](../raes-jax-celebahq-kaggle-tpuv5e8-sitdh-b.ipynb).
@@ -483,8 +485,8 @@ That notebook keeps the same JAX/TPU workarounds and data prep, but writes the
 CelebA-HQ Stage 2 config as `CelebAHQ256_SiTDH-B_DINOv2-B_jax_tpuv5e8.yaml`,
 using the DH two-tower layout `hidden_size=[768, 2048]`, `depth=[12, 2]`,
 `num_heads=[12, 16]`, enabling `use_pos_embed`, disabling label dropout with
-`class_dropout_prob=0.0`, and keeping the same `210000`-step
-checkpoint cadence.
+`class_dropout_prob=0.0`, enabling `training.random_flip=true`, and keeping the
+same `210000`-step checkpoint cadence.
 
 If you already have an Orbax run directory for `SiTDH-B` and want to continue
 training from its latest checkpoint, use

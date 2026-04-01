@@ -68,6 +68,17 @@ def normalize_training_data_dir(raw: Any, *, config_path: Path) -> Any:
     return resolved
 
 
+def infer_default_training_random_flip(*, config_path: Path, data_path: Any) -> bool:
+    candidates = [config_path.stem.lower()]
+    if isinstance(data_path, str):
+        candidates.append(data_path.lower())
+    return any(
+        token in candidate
+        for candidate in candidates
+        for token in ("celebahq", "celeba-hq", "celeb_a_hq")
+    )
+
+
 def parse_guidance_value(cfg: dict[str, Any], key: str, default: float) -> float:
     if key in cfg:
         return float(cfg[key])
@@ -208,6 +219,10 @@ def build_backend_config_dict(
     log_activation_stats = bool(training_cfg.get("log_activation_stats", False))
 
     train_data_dir = normalize_training_data_dir(data_path or eval_cfg.get("data_path"), config_path=config_path)
+    default_training_random_flip = infer_default_training_random_flip(
+        config_path=config_path,
+        data_path=train_data_dir,
+    )
 
     backend_cfg: dict[str, Any] = {
         "trainer": "DiT_ImageNet",
@@ -233,6 +248,7 @@ def build_backend_config_dict(
             "num_train_samples": num_train_samples,
             "num_workers": int(training_cfg.get("num_workers", 4)),
             "prefetch_factor": int(training_cfg.get("prefetch_factor", 2)),
+            "random_flip": bool(training_cfg.get("random_flip", default_training_random_flip)),
             "seed": cfg_seed,
             "seed_pt": cfg_seed,
         },
@@ -330,6 +346,7 @@ def build_backend_config_dict(
             "loss_batch_size": int(eval_cfg.get("batch_size", 4)),
             "num_workers": int(eval_cfg.get("num_workers", training_cfg.get("num_workers", 4))),
             "prefetch_factor": int(eval_cfg.get("prefetch_factor", training_cfg.get("prefetch_factor", 2))),
+            "random_flip": bool(eval_cfg.get("random_flip", False)),
             "fid_on": fid_on,
             "fid_eval_model": bool(eval_cfg.get("fid_eval_model", False)),
             "inception_batch_size": int(eval_cfg.get("fid_batch_size", 64)),

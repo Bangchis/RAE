@@ -150,10 +150,12 @@ The JAX path is intentionally kept thin:
 - [src_jax/config_adapter.py](../src_jax/config_adapter.py):
   translates the repository's OmegaConf YAML into the backend config expected
   by NNX, mapping `SiTDH` to the backend `lightning_ddt` network while keeping
-  the `sit` training interface
+  the `sit` training interface, forwarding `random_flip` plus prefetch knobs,
+  and defaulting CelebA-HQ train configs to horizontal flips unless overridden
 - [src_jax/stage2_runtime.py](../src_jax/stage2_runtime.py):
   training, checkpoint loading, sampling, guidance wiring, JAX validation-loss
-  integration, and FID glue for both EMA and optional online-model diagnostics
+  integration, optional horizontal flips on the raw-image path, and FID glue
+  for both EMA and optional online-model diagnostics
 - [src_jax/stage1_runtime.py](../src_jax/stage1_runtime.py):
   shared JAX Stage 1 encoder loading, single-image reconstruction, folder reconstruction, and latent-stat accumulation
 - [src_jax/export_celebahq_hf.py](../src_jax/export_celebahq_hf.py):

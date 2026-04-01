@@ -121,7 +121,8 @@ python3 src_jax/train.py \
   \texttt{UV\_CACHE\_DIR=/tmp/uv-cache}, chạy \texttt{uv sync -q}, tải
   \texttt{eurecom-ds/celeba-hq-256} từ Hugging Face và export sang
   \texttt{ImageFolder} bằng \texttt{src\_jax/export\_celebahq\_hf.py}, rồi
-  chạy các bước phụ thuộc package qua \texttt{uv run}. Route TFDS cũ vẫn còn
+  chạy các bước phụ thuộc package qua \texttt{uv run}. Flow notebook này giờ
+  cũng mặc định bật \texttt{training.random\_flip=true}. Route TFDS cũ vẫn còn
   trong repo, nhưng chỉ đóng vai trò fallback khi cần source manual chính thức.
   \item Nếu phần cứng là Kaggle \texttt{TPU v5e-8}, dùng notebook
   \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb}; bản này cố định biến
@@ -130,7 +131,7 @@ python3 src_jax/train.py \
   \texttt{/tmp/.venv} trước các bước \texttt{uv run}, tự xóa cờ executable-stack mà
   Kaggle có thể chặn trên \texttt{jaxlib}, rồi kiểm tra \texttt{jax}/TPU bằng
   tiến trình Python mới. Notebook này cũng tải \texttt{eurecom-ds/celeba-hq-256}
-  từ Hugging Face rồi export sang \texttt{ImageFolder} trước khi build Stage 1 stat, và đã bỏ override chẩn đoán
+  từ Hugging Face rồi export sang \texttt{ImageFolder} trước khi build Stage 1 stat, bật \texttt{training.random\_flip=true}, và đã bỏ override chẩn đoán
   \texttt{ema\_decay=0.99} và giữ mốc checkpoint mặc định ở \texttt{210000}
   step, nên mặc định quay lại EMA chuẩn của config.
   \item Nếu cần cùng flow Kaggle TPU đó nhưng muốn train biến thể
@@ -139,7 +140,8 @@ python3 src_jax/train.py \
   fix Kaggle/JAX hiện có, đổi Stage 2 sang recipe DH/two-tower
   \texttt{SiTDH-B} với \texttt{hidden\_size=[768, 2048]},
   \texttt{depth=[12, 2]}, \texttt{num\_heads=[12, 16]},
-  \texttt{use\_pos\_embed=true}, \texttt{class\_dropout\_prob=0.0}, và dùng
+  \texttt{use\_pos\_embed=true}, \texttt{class\_dropout\_prob=0.0},
+  \texttt{training.random\_flip=true}, và dùng
   cùng cadence checkpoint \texttt{210000} step.
   \item Nếu đã có sẵn một run Orbax của \texttt{SiTDH-B} và cần train tiếp từ
   checkpoint hiện có, dùng notebook

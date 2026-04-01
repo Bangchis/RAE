@@ -154,8 +154,51 @@ def _build_backend_eval_dataset(trainer: Any, config: Any) -> Any | None:
             cache=False,
         )
 
-    transform = trainer.local_imagenet_dataset.utils.build_transform(int(config.data.image_size))
+    transform = _build_backend_raw_transform(
+        trainer,
+        int(config.data.image_size),
+        random_flip=bool(config.eval.get("random_flip", False)),
+    )
     return trainer.local_imagenet_dataset.datasets.ImageFolder(root=str(eval_root), transform=transform)
+
+
+def _build_backend_raw_transform(trainer: Any, image_size: int, *, random_flip: bool) -> Any:
+    from torchvision import transforms
+
+    crop_fn = lambda image: trainer.local_imagenet_dataset.utils.center_crop_arr(image, image_size)
+    transform_steps: list[Any] = [crop_fn]
+    if random_flip:
+        transform_steps.append(transforms.RandomHorizontalFlip())
+    transform_steps.extend(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ]
+    )
+    return transforms.Compose(transform_steps)
+
+
+def _build_backend_train_dataset(trainer: Any, config: Any, image_size: int) -> Any:
+    if config.data.get("latent_dataset", False):
+        return trainer.local_imagenet_dataset.LatentDataset(
+            config.data.data_dir,
+            use_labels=True,
+            cache=False,
+        )
+
+    train_root = Path(str(config.data.data_dir)).expanduser().resolve() / "train"
+    if not train_root.exists():
+        raise FileNotFoundError(f"Training ImageFolder split not found: {train_root}")
+
+    transform = _build_backend_raw_transform(
+        trainer,
+        image_size,
+        random_flip=bool(config.data.get("random_flip", False)),
+    )
+    return trainer.local_imagenet_dataset.datasets.ImageFolder(
+        root=str(train_root),
+        transform=transform,
+    )
 
 
 def _resolve_prefetch_factor(raw: Any, *, num_workers: int) -> int | None:
@@ -403,12 +446,7 @@ def _patch_backend_train_loop_for_eval(trainer: Any) -> Any:
         if config.data.batch_size % trainer.jax.device_count() > 0:
             raise ValueError("Batch size must be divisible by the number of devices")
 
-        dataset = trainer.local_imagenet_dataset.build_imagenet_dataset(
-            is_train=True,
-            data_dir=config.data.data_dir,
-            image_size=image_size,
-            latent_dataset=config.data.latent_dataset,
-        )
+        dataset = _build_backend_train_dataset(trainer, config, image_size)
 
         encoder, model, optimizer, sampler, ema, learning_rate_fn = trainer.init_utils.build_models(config)
 

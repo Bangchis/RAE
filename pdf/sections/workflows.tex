@@ -308,7 +308,10 @@ protobuf trong môi trường không đồng nhất.
 Cell train Stage 2 cuối của các notebook CelebA-HQ truyền
 \texttt{--data-path /kaggle/working/celebahq256\_imgfolder}, còn
 \texttt{eval.data\_path} trong config sinh ra vẫn trỏ tới split
-\texttt{val}.
+\texttt{val}. Các notebook này mặc định bật
+\texttt{training.random\_flip=true}, giữ \texttt{eval.random\_flip=false}, và
+các bản TPU còn tăng \texttt{training.prefetch\_factor=8} cùng
+\texttt{eval.prefetch\_factor=4}.
 
 Nếu chạy trên Kaggle \texttt{TPU v5e-8}, dùng notebook
 \texttt{raes-jax-celebahq-kaggle-tpuv5e8-sitdh-s.ipynb}. Bản này cố định biến thể
@@ -317,7 +320,8 @@ CelebA-HQ Stage 2 là \texttt{SiTDH-S}, sync dependency của repo vào
 \texttt{jaxlib}, chạy bước xác nhận TPU trong một tiến trình Python mới, giữ
 Stage 1 và Stage 2 ở TPU, đồng thời build \texttt{fid\_ref} bằng đúng detector
 backend dùng cho online FID, và giữ cadence checkpoint mặc định ở mốc
-\texttt{210000} step.
+\texttt{210000} step. Config train CelebA-HQ của notebook này cũng bật
+\texttt{training.random\_flip=true}.
 
 Nếu muốn giữ nguyên flow đó nhưng đổi Stage 2 sang biến thể DH
 \texttt{SiTDH-B},
@@ -326,8 +330,9 @@ này ghi config CelebA-HQ thành
 \texttt{CelebAHQ256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8.yaml}, đặt backbone DH thành
 \texttt{hidden\_size=[768, 2048]}, \texttt{depth=[12, 2]},
 \texttt{num\_heads=[12, 16]}, bật \texttt{use\_pos\_embed}, tắt label dropout
-bằng \texttt{class\_dropout\_prob=0.0}, đặt tên run/project mặc định theo biến
-thể \texttt{SiTDH-B}, và
+bằng \texttt{class\_dropout\_prob=0.0}, bật
+\texttt{training.random\_flip=true}, đặt tên run/project mặc định theo biến thể
+\texttt{SiTDH-B}, và
 giữ cùng cadence checkpoint \texttt{210000} step.
 
 Nếu đã có thư mục run Orbax của \texttt{SiTDH-B} và cần train tiếp, dùng

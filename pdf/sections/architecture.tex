@@ -119,8 +119,8 @@ File & Vai trò \\
 \midrule
 \endhead
 \texttt{src\_jax/vendor.py} & Bootstrap \texttt{diffuse\_nnx} vào \texttt{\~{}/.cache/rae\_jax/diffuse\_nnx} và pin commit \\
-\texttt{src\_jax/config\_adapter.py} & Chuyển YAML OmegaConf của repo sang config backend NNX \\
-\texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, JAX validation-loss integration, FID glue, wandb bridge \\
+\texttt{src\_jax/config\_adapter.py} & Chuyển YAML OmegaConf của repo sang config backend NNX, forward \texttt{random\_flip}/\texttt{prefetch\_factor} và mặc định bật flip cho config train CelebA-HQ \\
+\texttt{src\_jax/stage2\_runtime.py} & Train, sampling, load checkpoint PyTorch hoặc Orbax, JAX validation-loss integration, raw-image random flip tùy chọn, FID glue, wandb bridge \\
  \texttt{src\_jax/stage1\_runtime.py} & Load encoder Stage 1 JAX, reconstruction một ảnh, reconstruction cả thư mục và tích lũy latent stat \\
  \texttt{src\_jax/build\_stage1\_stats.py} & Tạo file \texttt{stat.pt} theo định dạng mean / var để dùng lại cho Stage 1 \\
  \texttt{src\_jax/export\_celebahq\_hf.py} & Download \texttt{eurecom-ds/celeba-hq-256} từ Hugging Face rồi export thành cây \texttt{ImageFolder} cho pipeline JAX hiện tại \\
