@@ -22,6 +22,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging.")
     parser.add_argument("--wandb-entity", default=None, help="Override WANDB entity.")
     parser.add_argument("--wandb-project", default=None, help="Override WANDB project name.")
+    parser.add_argument(
+        "--wandb-run-id",
+        default=None,
+        help="Bind the JAX workdir to this exact W&B run ID. Required once for legacy resume workdirs without wandb_run.json.",
+    )
     parser.add_argument("--hf-repo-id", default=None, help="Upload the finished workdir to this Hugging Face repo.")
     parser.add_argument("--hf-private", action="store_true", help="Create the HF repo as private if needed.")
     parser.add_argument("--hf-revision", default="main", help="HF revision to upload to.")

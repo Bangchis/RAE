@@ -168,6 +168,8 @@ giữ metric ở stdout cùng wandb.
 \begin{itemize}[leftmargin=1.5em]
   \item vẫn dùng cùng file YAML của repo;
   \item hỗ trợ \texttt{--set key=value} để override nhanh từ CLI;
+  \item hỗ trợ \texttt{--wandb-run-id <existing\_run\_id>} để bind một
+  legacy workdir với đúng W\&B run cũ đúng một lần;
   \item nếu \texttt{stage\_2.ckpt} là file PyTorch \texttt{.pt}, adapter sẽ port
   trọng số sang NNX để khởi tạo;
   \item nếu \texttt{stage\_2.ckpt} là thư mục Orbax, adapter sẽ restore run JAX
@@ -198,7 +200,14 @@ export WANDB_KEY=<wandb_api_key>
 
 Đường JAX cũng chấp nhận các tên \texttt{WANDB\_ENTITY} và
 \texttt{WANDB\_API\_KEY}. Adapter sẽ bridge các tên legacy ở trên nếu chúng đã
-được export sẵn.
+được export sẵn. Với \texttt{src\_jax/train.py}, mỗi workdir mới giờ sẽ ghi
+\texttt{wandb\_run.json} để khóa đúng W\&B run id của workdir đó. Run mới dùng
+\texttt{resume="never"}; các lần resume sau sẽ đọc lại file này, giữ đúng run
+id đã bind, rồi tự rewind W\&B history về latest \texttt{checkpoint\_*} step
+qua \texttt{resume\_from}. Nhờ đó phần metric đã log sau checkpoint cuối của
+session cũ sẽ không bị giữ lại sai lịch sử. Nếu resume một Orbax workdir cũ chưa có
+\texttt{wandb\_run.json}, cần truyền \texttt{--wandb-run-id <existing\_run\_id>}
+một lần để bind đúng historical run trước khi train tiếp.
 
 \subsection{FID trong train loop}
 
@@ -345,6 +354,9 @@ fix \texttt{jaxlib}, lấy secret wandb, kiểm tra path, rồi tự tìm thư m
 \texttt{CelebAHQ256\_SiTDH-B\_DINOv2-B\_jax\_tpuv5e8-*} mới nhất bên dưới
 \texttt{/kaggle/working/results\_jax\_tpu/}, rồi mới tìm thư mục
 \texttt{checkpoint\_<step>/} mới nhất trong workdir đó trước khi truyền
-\texttt{--workdir} vào \texttt{src\_jax/train.py}. Runtime tiếp tục restore
-\texttt{latest\_step()} từ checkpoint mới nhất, nên notebook này không còn
-hardcode cả thư mục run có timestamp lẫn \texttt{checkpoint\_100000}.
+\texttt{--workdir} vào \texttt{src\_jax/train.py}. Nếu workdir đích là legacy
+run được tạo trước khi cơ chế \texttt{wandb\_run.json} tồn tại, cần thêm
+\texttt{--wandb-run-id <existing\_run\_id>} một lần để notebook resume đúng
+chính run W\&B cũ đó. Runtime tiếp tục restore \texttt{latest\_step()} từ
+checkpoint mới nhất, nên notebook này không còn hardcode cả thư mục run có
+timestamp lẫn \texttt{checkpoint\_100000}.

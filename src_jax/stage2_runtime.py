@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import functools
 import importlib.util
+import json
 import math
 import os
 import time
@@ -23,6 +24,9 @@ except ImportError:
     from vendor import activate_backend
 
 
+WANDB_RESUME_METADATA_FILENAME = "wandb_run.json"
+
+
 def _bridge_legacy_wandb_env(entity: str | None, project: str | None) -> None:
     if "WANDB_API_KEY" not in os.environ and "WANDB_KEY" in os.environ:
         os.environ["WANDB_API_KEY"] = os.environ["WANDB_KEY"]
@@ -32,6 +36,150 @@ def _bridge_legacy_wandb_env(entity: str | None, project: str | None) -> None:
         os.environ["WANDB_ENTITY"] = os.environ["ENTITY"]
     if project and "PROJECT" not in os.environ:
         os.environ["PROJECT"] = project
+
+
+def _wandb_resume_metadata_path(workdir: Path) -> Path:
+    return workdir / WANDB_RESUME_METADATA_FILENAME
+
+
+def _load_wandb_resume_metadata(path: Path) -> dict[str, str] | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    required = ("run_id", "entity", "project", "exp_name")
+    missing = [key for key in required if not payload.get(key)]
+    if missing:
+        raise ValueError(f"{path} is missing required W&B resume keys: {', '.join(missing)}")
+    return {key: str(payload[key]) for key in required}
+
+
+def _latest_orbax_checkpoint_step(workdir: Path) -> int | None:
+    latest_step: int | None = None
+    for path in workdir.glob("checkpoint_*"):
+        if not path.is_dir():
+            continue
+        try:
+            step = int(path.name.rsplit("_", 1)[-1])
+        except ValueError:
+            continue
+        latest_step = step if latest_step is None else max(latest_step, step)
+    return latest_step
+
+
+def _generate_fresh_wandb_run_id(wandb_utils: Any) -> str:
+    generate_id = getattr(getattr(getattr(wandb_utils, "wandb", None), "util", None), "generate_id", None)
+    if callable(generate_id):
+        run_id = generate_id()
+        if run_id:
+            return str(run_id)
+    return os.urandom(4).hex()
+
+
+def _resolve_wandb_resume_binding(
+    *,
+    workdir: Path,
+    entity: str,
+    project_name: str,
+    exp_name: str,
+    explicit_run_id: str | None,
+    wandb_utils: Any,
+) -> tuple[dict[str, str], dict[str, str]]:
+    metadata_path = _wandb_resume_metadata_path(workdir)
+    metadata = _load_wandb_resume_metadata(metadata_path)
+    checkpoint_step = _latest_orbax_checkpoint_step(workdir)
+    if metadata is not None:
+        if explicit_run_id and explicit_run_id != metadata["run_id"]:
+            raise ValueError(
+                f"Explicit W&B run id {explicit_run_id!r} does not match stored metadata {metadata['run_id']!r} in {metadata_path}."
+            )
+        mismatches: list[str] = []
+        for key, current_value in (
+            ("entity", entity),
+            ("project", project_name),
+            ("exp_name", exp_name),
+        ):
+            if metadata[key] != current_value:
+                mismatches.append(f"{key}: stored={metadata[key]!r}, current={current_value!r}")
+        if mismatches:
+            raise ValueError(
+                f"W&B resume metadata mismatch for {workdir}: " + "; ".join(mismatches)
+            )
+        if checkpoint_step is None:
+            raise FileNotFoundError(
+                f"Cannot rewind W&B run {metadata['run_id']!r} for {workdir} because no Orbax checkpoint_* directory exists."
+            )
+        return metadata, {"resume_from": f"{metadata['run_id']}?_step={checkpoint_step}"}
+
+    if explicit_run_id:
+        if checkpoint_step is None:
+            raise FileNotFoundError(
+                f"Cannot bind legacy W&B run {explicit_run_id!r} for {workdir} because no Orbax checkpoint_* directory exists."
+            )
+        return {
+            "run_id": str(explicit_run_id),
+            "entity": entity,
+            "project": project_name,
+            "exp_name": exp_name,
+        }, {"resume_from": f"{explicit_run_id}?_step={checkpoint_step}"}
+
+    if checkpoint_step is not None:
+        raise FileNotFoundError(
+            f"Missing {_wandb_resume_metadata_path(workdir)} for resume workdir {workdir}. "
+            "Pass --wandb-run-id <existing-run-id> once to bind this legacy workdir to the correct W&B run."
+        )
+
+    fresh_run_id = _generate_fresh_wandb_run_id(wandb_utils)
+    return {
+        "run_id": fresh_run_id,
+        "entity": entity,
+        "project": project_name,
+        "exp_name": exp_name,
+    }, {"id": fresh_run_id, "resume": "never"}
+
+
+def _install_strict_wandb_initializer(
+    wandb_utils: Any,
+    *,
+    workdir: Path,
+    explicit_run_id: str | None,
+) -> None:
+    def initialize(config: Any, exp_name: str = "dit", project_name: str = "tpu-dit") -> None:
+        if not wandb_utils.is_main_process():
+            return
+
+        api_key = os.environ.get("WANDB_API_KEY") or os.environ.get("WANDB_KEY")
+        if api_key is None:
+            raise RuntimeError("WANDB_API_KEY is not set. Export it in your shell before launching training.")
+
+        entity = os.environ.get("WANDB_ENTITY")
+        if entity is None:
+            raise RuntimeError("WANDB_ENTITY is not set. Export it in your shell before launching training.")
+
+        metadata, init_kwargs = _resolve_wandb_resume_binding(
+            workdir=workdir,
+            entity=entity,
+            project_name=project_name,
+            exp_name=exp_name,
+            explicit_run_id=explicit_run_id,
+            wandb_utils=wandb_utils,
+        )
+
+        config_dict = config.to_dict() if hasattr(config, "to_dict") else config
+        wandb_utils.wandb.login(key=api_key)
+        run = wandb_utils.wandb.init(
+            entity=entity,
+            project=project_name,
+            name=exp_name,
+            config=config_dict,
+            **init_kwargs,
+        )
+
+        payload = dict(metadata)
+        payload["run_id"] = str(getattr(run, "id", metadata["run_id"])) if run is not None else metadata["run_id"]
+        write_json(_wandb_resume_metadata_path(workdir), payload)
+
+    wandb_utils.initialize = initialize
 
 
 def _disable_backend_wandb(wandb_utils: Any) -> None:
@@ -1164,6 +1312,17 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
 
     if args.wandb:
         _bridge_legacy_wandb_env(args.wandb_entity, args.wandb_project)
+        _install_strict_wandb_initializer(
+            backend_wandb,
+            workdir=workdir,
+            explicit_run_id=getattr(args, "wandb_run_id", None),
+        )
+        if getattr(trainer, "wandb_utils", None) is not backend_wandb:
+            _install_strict_wandb_initializer(
+                trainer.wandb_utils,
+                workdir=workdir,
+                explicit_run_id=getattr(args, "wandb_run_id", None),
+            )
     else:
         _disable_backend_wandb(backend_wandb)
 
