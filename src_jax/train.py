@@ -11,7 +11,11 @@ except ImportError:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train Stage-2 RAE diffusion on JAX/NNX.")
     parser.add_argument("--config", required=True, help="Path to the repo YAML config.")
-    parser.add_argument("--data-path", required=True, help="ImageNet root directory.")
+    parser.add_argument("--data-path", required=True, help="ImageFolder root or TFDS data directory.")
+    parser.add_argument("--data-format", choices=["imagefolder", "tfds"], default=None, help="Override data.format for the JAX adapter.")
+    parser.add_argument("--dataset-name", default=None, help="Dataset registry name when --data-format=tfds, e.g. celebahq256.")
+    parser.add_argument("--train-split", default=None, help="Override TFDS training split.")
+    parser.add_argument("--eval-split", default=None, help="Override TFDS evaluation split.")
     parser.add_argument("--results-dir", default="results_jax", help="Base directory for training runs.")
     parser.add_argument("--workdir", default=None, help="Explicit workdir. Overrides --results-dir.")
     parser.add_argument("--image-size", type=int, default=None, help="Override output image size.")

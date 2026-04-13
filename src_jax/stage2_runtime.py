@@ -17,10 +17,12 @@ from omegaconf import OmegaConf
 try:
     from .config_adapter import build_backend_config_dict, cfg_to_dict, load_repo_config, write_json
     from .hf_utils import upload_path
+    from .tfds_data import build_label_proxy_dataset, build_torch_style_tfds_loader
     from .vendor import activate_backend
 except ImportError:
     from config_adapter import build_backend_config_dict, cfg_to_dict, load_repo_config, write_json
     from hf_utils import upload_path
+    from tfds_data import build_label_proxy_dataset, build_torch_style_tfds_loader
     from vendor import activate_backend
 
 
@@ -291,6 +293,14 @@ def _build_backend_eval_dataset(trainer: Any, config: Any) -> Any | None:
     if not eval_data_dir:
         return None
 
+    if str(config.eval.get("data_source", config.data.get("source", "imagefolder"))).lower() == "tfds":
+        return build_label_proxy_dataset(
+            num_examples=max(1, int(config.data.get("num_train_samples", 1))),
+            image_size=int(config.data.image_size),
+            dataset_name=str(config.eval.get("dataset_name") or config.data.get("dataset_name") or ""),
+            num_classes=int(config.network.get("num_classes", 1)),
+        )
+
     eval_root = Path(str(eval_data_dir)).expanduser().resolve()
     if not eval_root.exists():
         raise FileNotFoundError(f"Validation ImageFolder not found: {eval_root}")
@@ -327,6 +337,14 @@ def _build_backend_raw_transform(trainer: Any, image_size: int, *, random_flip: 
 
 
 def _build_backend_train_dataset(trainer: Any, config: Any, image_size: int) -> Any:
+    if str(config.data.get("source", "imagefolder")).lower() == "tfds":
+        return build_label_proxy_dataset(
+            num_examples=max(1, int(config.data.get("num_train_samples", 1))),
+            image_size=image_size,
+            dataset_name=str(config.data.get("dataset_name") or ""),
+            num_classes=int(config.network.get("num_classes", 1)),
+        )
+
     if config.data.get("latent_dataset", False):
         return trainer.local_imagenet_dataset.LatentDataset(
             config.data.data_dir,
@@ -368,6 +386,24 @@ def _build_backend_train_loader(trainer: Any, config: Any, dataset: Any, *, offs
     num_workers = int(config.data.num_workers)
     if num_workers < 0:
         raise ValueError("training.num_workers must be non-negative.")
+
+    if str(config.data.get("source", "imagefolder")).lower() == "tfds":
+        return build_torch_style_tfds_loader(
+            dataset_name=str(config.data.get("dataset_name") or ""),
+            data_dir=config.data.data_dir,
+            split=str(config.data.get("train_split", "train")),
+            batch_size=local_batch_size,
+            image_size=int(config.data.image_size),
+            random_flip=bool(config.data.get("random_flip", False)),
+            repeat=True,
+            shuffle=True,
+            seed=int(config.data.seed) + int(offset_seed),
+            rank=trainer.jax.process_index(),
+            world_size=max(1, trainer.jax.process_count()),
+            shuffle_buffer=int(config.data.get("shuffle_buffer", 20_000)),
+            drop_remainder=True,
+            channels_first=True,
+        )
 
     sampler = trainer.local_imagenet_dataset.InfiniteSampler(
         dataset,
@@ -420,6 +456,25 @@ def _build_backend_eval_loader(trainer: Any, config: Any, dataset: Any) -> Any:
     num_workers = int(config.eval.get("num_workers", config.data.num_workers))
     if num_workers < 0:
         raise ValueError("eval.num_workers must be non-negative.")
+
+    if str(config.eval.get("data_source", config.data.get("source", "imagefolder"))).lower() == "tfds":
+        return build_torch_style_tfds_loader(
+            dataset_name=str(config.eval.get("dataset_name") or config.data.get("dataset_name") or ""),
+            data_dir=config.eval.get("data_dir"),
+            split=str(config.eval.get("tfds_split", config.data.get("eval_split", "validation"))),
+            batch_size=local_batch_size,
+            image_size=int(config.data.image_size),
+            random_flip=bool(config.eval.get("random_flip", False)),
+            repeat=False,
+            shuffle=False,
+            seed=int(config.eval.get("seed", config.data.seed)),
+            rank=trainer.jax.process_index(),
+            world_size=max(1, trainer.jax.process_count()),
+            shuffle_buffer=int(config.data.get("shuffle_buffer", 20_000)),
+            drop_remainder=False,
+            channels_first=True,
+        )
+
     prefetch_factor = _resolve_prefetch_factor(
         config.eval.get("prefetch_factor", config.data.get("prefetch_factor")),
         num_workers=num_workers,
@@ -1283,6 +1338,10 @@ def run_stage2_training(args: argparse.Namespace) -> Path:
         config_path=config_path,
         mode="train",
         data_path=args.data_path,
+        data_format=getattr(args, "data_format", None),
+        dataset_name=getattr(args, "dataset_name", None),
+        train_split=getattr(args, "train_split", None),
+        eval_split=getattr(args, "eval_split", None),
         image_size=args.image_size,
         precision=args.precision,
         seed=args.global_seed,

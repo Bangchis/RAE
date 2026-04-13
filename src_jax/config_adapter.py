@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import pickle
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ from omegaconf import DictConfig, OmegaConf
 
 
 IMAGENET1K_TRAIN_SAMPLES = 1_281_167
-FID_CACHE_DIR = Path.home() / ".cache" / "rae_jax" / "fid_refs"
+FID_CACHE_DIR = Path(os.environ.get("RAE_JAX_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME") or "/tmp") / "rae_jax" / "fid_refs"
 
 
 def load_repo_config(config_path: str, overrides: list[str] | None = None) -> tuple[DictConfig, Path]:
@@ -77,6 +78,35 @@ def infer_default_training_random_flip(*, config_path: Path, data_path: Any) -> 
         for candidate in candidates
         for token in ("celebahq", "celeba-hq", "celeb_a_hq")
     )
+
+
+def normalize_data_source(raw: Any) -> str:
+    if raw is None:
+        return "auto"
+    normalized = str(raw).strip().lower()
+    aliases = {
+        "folder": "imagefolder",
+        "imgfolder": "imagefolder",
+        "image_folder": "imagefolder",
+        "tfrecord": "tfds",
+        "tfrecords": "tfds",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"auto", "imagefolder", "tfds"}:
+        raise ValueError(f"Unsupported data.format/source: {raw!r}")
+    return normalized
+
+
+def infer_data_source(*, requested_source: str, resolved_data_dir: Any, dataset_name: Any) -> str:
+    if requested_source != "auto":
+        return requested_source
+    if dataset_name:
+        return "tfds"
+    if isinstance(resolved_data_dir, str):
+        path = Path(resolved_data_dir)
+        if any((path / split_name).is_dir() for split_name in ("train", "val", "test")):
+            return "imagefolder"
+    return "imagefolder"
 
 
 def parse_guidance_value(cfg: dict[str, Any], key: str, default: float) -> float:
@@ -163,6 +193,10 @@ def build_backend_config_dict(
     config_path: Path,
     mode: str,
     data_path: str | None = None,
+    data_format: str | None = None,
+    dataset_name: str | None = None,
+    train_split: str | None = None,
+    eval_split: str | None = None,
     image_size: int | None = None,
     precision: str = "bf16",
     seed: int | None = None,
@@ -178,6 +212,7 @@ def build_backend_config_dict(
     sampler_cfg = cfg_to_dict(repo_cfg.get("sampler"))
     guidance_cfg = cfg_to_dict(repo_cfg.get("guidance"))
     misc_cfg = cfg_to_dict(repo_cfg.get("misc"))
+    data_cfg = cfg_to_dict(repo_cfg.get("data"))
     training_cfg = cfg_to_dict(repo_cfg.get("training"))
     eval_cfg = cfg_to_dict(repo_cfg.get("eval"))
 
@@ -209,7 +244,7 @@ def build_backend_config_dict(
     epochs = int(training_cfg.get("epochs", 1))
     steps_per_epoch = max(1, math.ceil(num_train_samples / max(batch_size, 1)))
     total_steps = int(training_cfg.get("total_steps", epochs * steps_per_epoch))
-    eval_data_dir = resolve_repo_value(eval_cfg.get("data_path"), config_path=config_path)
+    eval_data_dir = resolve_repo_value(eval_cfg.get("data_path") or data_cfg.get("data_dir"), config_path=config_path)
     eval_every = int(eval_cfg.get("eval_every", 0))
     fid_every = int(eval_cfg.get("fid_every", eval_every))
     fid_num_samples = int(eval_cfg.get("fid_num_samples", 0))
@@ -218,11 +253,25 @@ def build_backend_config_dict(
     log_rae_latent_stats = bool(training_cfg.get("log_rae_latent_stats", False))
     log_activation_stats = bool(training_cfg.get("log_activation_stats", False))
 
-    train_data_dir = normalize_training_data_dir(data_path or eval_cfg.get("data_path"), config_path=config_path)
+    resolved_input_data_dir = resolve_repo_value(data_path or data_cfg.get("data_dir") or eval_cfg.get("data_path"), config_path=config_path)
+    resolved_dataset_name = dataset_name or data_cfg.get("dataset_name")
+    requested_data_source = normalize_data_source(data_format or data_cfg.get("format") or data_cfg.get("source"))
+    data_source = infer_data_source(
+        requested_source=requested_data_source,
+        resolved_data_dir=resolved_input_data_dir,
+        dataset_name=resolved_dataset_name,
+    )
+    train_data_dir = (
+        normalize_training_data_dir(resolved_input_data_dir, config_path=config_path)
+        if data_source == "imagefolder"
+        else resolved_input_data_dir
+    )
     default_training_random_flip = infer_default_training_random_flip(
         config_path=config_path,
-        data_path=train_data_dir,
+        data_path=resolved_dataset_name or train_data_dir,
     )
+    resolved_train_split = str(train_split or data_cfg.get("train_split") or "train")
+    resolved_eval_split = str(eval_split or eval_cfg.get("tfds_split") or data_cfg.get("eval_split") or "validation")
 
     backend_cfg: dict[str, Any] = {
         "trainer": "DiT_ImageNet",
@@ -241,6 +290,10 @@ def build_backend_config_dict(
         },
         "data": {
             "data_dir": train_data_dir,
+            "source": data_source,
+            "dataset_name": resolved_dataset_name,
+            "train_split": resolved_train_split,
+            "eval_split": resolved_eval_split,
             "stat_dir": maybe_convert_fid_reference(resolve_repo_value(eval_cfg.get("fid_ref"), config_path=config_path)),
             "batch_size": batch_size,
             "image_size": resolved_image_size,
@@ -248,6 +301,7 @@ def build_backend_config_dict(
             "num_train_samples": num_train_samples,
             "num_workers": int(training_cfg.get("num_workers", 4)),
             "prefetch_factor": int(training_cfg.get("prefetch_factor", 2)),
+            "shuffle_buffer": int(data_cfg.get("shuffle_buffer", 20_000)),
             "random_flip": bool(training_cfg.get("random_flip", default_training_random_flip)),
             "seed": cfg_seed,
             "seed_pt": cfg_seed,
@@ -338,6 +392,9 @@ def build_backend_config_dict(
             "seed": 42,
             "detector": "inception",
             "data_dir": eval_data_dir,
+            "data_source": data_source,
+            "dataset_name": resolved_dataset_name,
+            "tfds_split": resolved_eval_split,
             "loss_on": loss_on,
             "loss_every_steps": eval_every,
             "max_batches": int(eval_cfg.get("max_batches", 0)),

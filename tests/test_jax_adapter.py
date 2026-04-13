@@ -275,6 +275,63 @@ misc:
 
         self.assertTrue(backend_cfg["data"]["random_flip"])
 
+    def test_lightningdit_target_and_tfds_data_section_are_forwarded(self) -> None:
+        config_path = self._write_temp_config(
+            """
+data:
+  format: tfds
+  dataset_name: celebahq256
+  train_split: train[:95%]
+  eval_split: train[95%:]
+stage_1:
+  target: stage1.RAE
+  params:
+    encoder_input_size: 256
+    decoder_patch_size: 16
+    normalization_stat_path: /tmp/stat.pt
+    pretrained_decoder_path: /tmp/decoder.ckpt
+stage_2:
+  target: stage2.models.lightningDiT.LightningDiT
+  params:
+    input_size: 16
+    patch_size: 1
+    in_channels: 768
+    hidden_size: 1152
+    depth: 28
+    num_heads: 16
+misc:
+  latent_size: [768, 16, 16]
+  num_classes: 1
+training:
+  random_flip: true
+eval:
+  data_path: /tmp/tfds_root
+  tfds_split: train[95%:]
+  eval_every: 1000
+""",
+            filename="CelebAHQ256_LightningDiT.yaml",
+        )
+        repo_cfg, resolved_config_path = load_repo_config(config_path)
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=resolved_config_path,
+            mode="train",
+            data_path="/tmp/tfds_root",
+            precision="bf16",
+            seed=11,
+            num_train_samples=30_000,
+            enable_eval=True,
+        )
+
+        self.assertEqual(backend_cfg["network_class"], "lightning_dit")
+        self.assertEqual(backend_cfg["network"]["hidden_size"], 1152)
+        self.assertEqual(backend_cfg["network"]["depth"], 28)
+        self.assertEqual(backend_cfg["network"]["num_heads"], 16)
+        self.assertEqual(backend_cfg["data"]["source"], "tfds")
+        self.assertEqual(backend_cfg["data"]["dataset_name"], "celebahq256")
+        self.assertEqual(backend_cfg["data"]["train_split"], "train[:95%]")
+        self.assertEqual(backend_cfg["eval"]["tfds_split"], "train[95%:]")
+
 
 if __name__ == "__main__":
     unittest.main()
