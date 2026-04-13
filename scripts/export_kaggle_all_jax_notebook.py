@@ -60,7 +60,7 @@ try:
 except Exception as exc:
     print(f"Skipping Kaggle secret bootstrap: {exc}")
 
-RAE_REPO_URL = "https://github.com/sontungkieu/RAE"  # đổi sang fork của bạn nếu cần
+RAE_REPO_URL = "https://github.com/Bangchis/RAE.git"
 RAE_BRANCH = "jax-sit-dh-celebahq256"
 
 INPUT_ROOT = Path("/kaggle/input/shortcut-celebahq-256")
