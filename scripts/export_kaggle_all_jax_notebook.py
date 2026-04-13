@@ -24,23 +24,25 @@ def code_cell(text: str) -> dict:
 
 def build_notebook() -> dict:
     title = markdown_cell(
-        """# RAE CelebA-HQ256 Kaggle TPU v5e-8 Runbook (All-JAX + LightningDiT)
+        """# RAE CelebA-HQ256 Kaggle TPU v5e-8 Runbook (All-JAX + LightningDiT-B)
 
 Notebook này bám hướng bạn đã chốt:
 
 - Stage 1: config giống `main` nhất có thể (`reconstruction + LPIPS + GAN`) nhưng đi theo all-JAX roadmap
-- Stage 2: `LightningDiT` trên TFDS CelebA-HQ256, chạy bằng JAX trên Kaggle TPU
+- Stage 2: `LightningDiT-B` trên TFDS CelebA-HQ256, chạy bằng JAX trên Kaggle TPU
 
-Lưu ý trung thực:
+Lưu ý:
 
+- Notebook dùng split TFDS có sẵn là `train` và `validation`, không còn tự cắt `train[:95%]`.
 - Cell Stage 2 chạy được với branch hiện tại.
 - Cell Stage 1 all-JAX hiện là launch contract cho trainer JAX đang được port. Notebook vẫn xuất đủ config và lệnh để bạn giữ một pipeline Kaggle thống nhất.
-- Nếu TPU compile hoặc OOM, giảm `STAGE1_BATCH_SIZE` xuống `16` và `STAGE2_BATCH_SIZE` xuống `32`.
+- Nếu TPU compile hoặc OOM, giảm `STAGE1_BATCH_SIZE` từ `512` xuống `256/128/64/32`, và giảm `STAGE2_BATCH_SIZE` từ `64` xuống `32`.
 """
     )
 
     env_setup = code_cell(
-        """import os
+        """import json
+import os
 from pathlib import Path
 
 try:
@@ -74,15 +76,15 @@ ARTIFACTS_ROOT = WORK_ROOT / "artifacts"
 
 STAGE1_RESULTS_DIR = RESULTS_ROOT / "stage1_jax"
 STAGE2_RESULTS_DIR = RESULTS_ROOT / "stage2_jax"
-STAGE1_KAGGLE_CFG = REPO_ROOT / "configs" / "stage1" / "training" / "CelebAHQ256_DINOv2-B_decXL_tfds_kaggle.yaml"
-STAGE2_KAGGLE_CFG = REPO_ROOT / "configs" / "stage2" / "training" / "CelebAHQ256" / "LightningDiT-XL_DINOv2-B_tfds_kaggle.yaml"
+STAGE1_KAGGLE_CFG = REPO_ROOT / "configs" / "stage1" / "training" / "CelebAHQ256_DINOv2-B_decB_tfds_kaggle.yaml"
+STAGE2_KAGGLE_CFG = REPO_ROOT / "configs" / "stage2" / "training" / "CelebAHQ256" / "LightningDiT-B_DINOv2-B_tfds_kaggle.yaml"
 
 STAGE1_DECODER_EXPORT = ARTIFACTS_ROOT / "celebahq256_stage1_decoder.pt"
 STAGE1_STATS_PATH = ARTIFACTS_ROOT / "celebahq256_stage1_stat.pt"
-FALLBACK_DECODER_PATH = REPO_ROOT / "models" / "decoders" / "dinov2" / "wReg_base" / "ViTXL_n08" / "model.pt"
+FALLBACK_DECODER_PATH = REPO_ROOT / "models" / "decoders" / "dinov2" / "wReg_base" / "decB_ganv3" / "dinov2_decoder.pt"
 DINO_DISC_CKPT = REPO_ROOT / "models" / "discs" / "dino_vit_small_patch8_224.pth"
 
-STAGE1_BATCH_SIZE = 32
+STAGE1_BATCH_SIZE = 512
 STAGE2_BATCH_SIZE = 64
 STAGE2_NUM_WORKERS = 1
 STAGE2_PREFETCH_FACTOR = 8
@@ -126,79 +128,97 @@ print("Branch:", RAE_BRANCH)
 print("TFDS input root:", TFDS_SOURCE_DIR)
 print("Planned Stage 1 cfg:", STAGE1_KAGGLE_CFG)
 print("Planned Stage 2 cfg:", STAGE2_KAGGLE_CFG)
+print("Stage 1 batch (main-like):", STAGE1_BATCH_SIZE)
+print("Stage 2 Kaggle TPU settings:", json.dumps({
+    "batch": STAGE2_BATCH_SIZE,
+    "num_workers": STAGE2_NUM_WORKERS,
+    "prefetch_factor": STAGE2_PREFETCH_FACTOR,
+    "ckpt_every": STAGE2_CKPT_EVERY,
+    "sample_every": STAGE2_SAMPLE_EVERY,
+}, indent=2))
 """
     )
 
     clone_repo = code_cell(
-        """%%bash
-set -euo pipefail
-
-cd /kaggle/working
-rm -rf RAE
-git clone "${RAE_REPO_URL}" RAE
-cd RAE
-git checkout "${RAE_BRANCH}"
-curl -LsSf https://astral.sh/uv/install.sh | sh
-ln -sf /root/.local/bin/uv /usr/local/bin/uv
+        """%cd /kaggle/working
+!rm -rf RAE
+!git clone "${RAE_REPO_URL}" RAE
+%cd /kaggle/working/RAE
+!git checkout "${RAE_BRANCH}"
+!curl -LsSf https://astral.sh/uv/install.sh | sh
+!ln -sf /root/.local/bin/uv /usr/local/bin/uv
 """
     )
 
     sync_env = code_cell(
-        """%%bash
-set -euo pipefail
-
-cd "${REPO_ROOT}"
-uv sync -q
-uv run python scripts/clear_elf_execstack.py --package jaxlib --quiet-unchanged
-
-export JAX_PLATFORMS="tpu,cpu"
-export XLA_PYTHON_CLIENT_PREALLOCATE="false"
-
-uv run python - <<'PY'
-import os
-import sys
-import jax
-import jaxlib
-
-print("python:", sys.executable)
-print("jax:", jax.__version__)
-print("jaxlib:", jaxlib.__version__)
-print("default backend:", jax.default_backend())
-print("local device count:", jax.local_device_count())
-print("devices:", jax.devices())
-print("host cpu cores:", os.cpu_count())
-PY
+        """%cd /kaggle/working/RAE
+!uv sync -q
+!uv run python scripts/clear_elf_execstack.py --package jaxlib --quiet-unchanged
+!env JAX_PLATFORMS=tpu,cpu XLA_PYTHON_CLIENT_PREALLOCATE=false uv run python -c "import os,sys,jax,jaxlib; print('python:', sys.executable); print('jax:', jax.__version__); print('jaxlib:', jaxlib.__version__); print('default backend:', jax.default_backend()); print('local device count:', jax.local_device_count()); print('devices:', jax.devices()); print('host cpu cores:', os.cpu_count())"
 """
     )
 
     prepare_tfds = code_cell(
-        """%%bash
-set -euo pipefail
-
-rm -rf "${TFDS_WORK_ROOT}"
-mkdir -p "${TFDS_WORK_ROOT}"
-cp -r "${TFDS_SOURCE_DIR}" "${TFDS_WORK_ROOT}/"
-cp -r "${TFDS_BUILDERS_DIR}" "${TFDS_WORK_ROOT}/"
-
-echo "TFDS work root: ${TFDS_WORK_ROOT}"
-find "${TFDS_WORK_ROOT}" -maxdepth 2 -type d | sort | head -n 50
+        """%cd /kaggle/working
+!rm -rf "${TFDS_WORK_ROOT}"
+!mkdir -p "${TFDS_WORK_ROOT}"
+!cp -r "${TFDS_SOURCE_DIR}" "${TFDS_WORK_ROOT}/"
+!cp -r "${TFDS_BUILDERS_DIR}" "${TFDS_WORK_ROOT}/"
+!echo "TFDS work root: ${TFDS_WORK_ROOT}"
+!find "${TFDS_WORK_ROOT}" -maxdepth 2 -type d | sort | head -n 50
 """
     )
 
     download_assets = code_cell(
-        """%%bash
-set -euo pipefail
-
-cd "${REPO_ROOT}"
-mkdir -p models
-
-uv run hf download nyu-visionx/RAE-collections \
-  decoders/dinov2/wReg_base/ViTXL_n08/model.pt \
+        """%cd /kaggle/working/RAE
+!mkdir -p models
+!uv run hf download nyu-visionx/RAE-collections \
+  decoders/dinov2/wReg_base/decB_ganv3/dinov2_decoder.pt \
   discs/dino_vit_small_patch8_224.pth \
   --local-dir models
+!ls -lah "${FALLBACK_DECODER_PATH}"
+!ls -lah "${DINO_DISC_CKPT}"
+"""
+    )
 
-ls -lah "${FALLBACK_DECODER_PATH}"
-ls -lah "${DINO_DISC_CKPT}"
+    inspect_splits = code_cell(
+        """import json
+from pathlib import Path
+
+candidate_infos = sorted(TFDS_DATA_DIR.glob("celebahq256/**/dataset_info.json"))
+dataset_info_path = candidate_infos[-1] if candidate_infos else None
+print("dataset_info_path =", dataset_info_path)
+
+def _extract_split_counts(payload):
+    counts = {}
+    raw_splits = payload.get("splits", {})
+    if isinstance(raw_splits, dict):
+        for name, value in raw_splits.items():
+            if isinstance(value, dict):
+                counts[name] = value.get("numExamples") or value.get("shardLengths")
+    elif isinstance(raw_splits, list):
+        for value in raw_splits:
+            if isinstance(value, dict):
+                name = value.get("name")
+                if name:
+                    counts[name] = value.get("numExamples") or value.get("shardLengths")
+    normalized = {}
+    for name, value in counts.items():
+        if isinstance(value, list):
+            normalized[name] = sum(int(x) for x in value)
+        elif value is not None:
+            normalized[name] = int(value)
+    return normalized
+
+split_counts = {}
+if dataset_info_path is not None:
+    payload = json.loads(dataset_info_path.read_text())
+    split_counts = _extract_split_counts(payload)
+
+print("split_counts =", split_counts)
+stage2_num_train_samples = int(split_counts.get("train", 28500))
+os.environ["STAGE2_NUM_TRAIN_SAMPLES"] = str(stage2_num_train_samples)
+print("STAGE2_NUM_TRAIN_SAMPLES =", stage2_num_train_samples)
 """
     )
 
@@ -215,8 +235,8 @@ stage1_yaml = dedent(f\"\"\"\
 data:
   format: tfds
   dataset_name: celebahq256
-  train_split: train[:95%]
-  eval_split: train[95%:]
+  train_split: train
+  eval_split: validation
   shuffle_buffer: 20000
 
 stage_1:
@@ -228,7 +248,7 @@ stage_1:
     encoder_params:
       dinov2_path: 'facebook/dinov2-with-registers-base'
       normalize: true
-    decoder_config_path: 'configs/decoder/ViTXL'
+    decoder_config_path: 'configs/decoder/ViTB'
     noise_tau: 0.8
     reshape_to_2d: true
 
@@ -236,7 +256,7 @@ training:
   epochs: 16
   ema_decay: 0.9978
   global_batch_size: {STAGE1_BATCH_SIZE}
-  num_workers: 1
+  num_workers: 8
   clip_grad: 0.0
   log_interval: 100
   checkpoint_interval: 1
@@ -294,8 +314,8 @@ stage2_yaml = dedent(f\"\"\"\
 data:
   format: tfds
   dataset_name: celebahq256
-  train_split: train[:95%]
-  eval_split: train[95%:]
+  train_split: train
+  eval_split: validation
   shuffle_buffer: 20000
 
 stage_1:
@@ -307,7 +327,7 @@ stage_1:
     encoder_params:
       dinov2_path: 'facebook/dinov2-with-registers-base'
       normalize: true
-    decoder_config_path: 'configs/decoder/ViTXL'
+    decoder_config_path: 'configs/decoder/ViTB'
     pretrained_decoder_path: '{active_decoder}'
     noise_tau: 0.0
     reshape_to_2d: true
@@ -319,9 +339,9 @@ stage_2:
     input_size: 16
     patch_size: 1
     in_channels: 768
-    hidden_size: 1152
-    depth: 28
-    num_heads: 16
+    hidden_size: 768
+    depth: 12
+    num_heads: 12
     mlp_ratio: 4.0
     class_dropout_prob: 0.0
     num_classes: 1
@@ -391,18 +411,14 @@ print(STAGE2_KAGGLE_CFG.read_text())
     )
 
     stage1_dry_run = code_cell(
-        """%%bash
-set -euo pipefail
-
-cd "${REPO_ROOT}"
-
-uv run python src_jax/train_stage1.py \
+        """%cd /kaggle/working/RAE
+!uv run python src_jax/train_stage1.py \
   --config "${STAGE1_KAGGLE_CFG}" \
   --data-path "${TFDS_DATA_DIR}" \
   --data-format tfds \
   --dataset-name celebahq256 \
-  --train-split 'train[:95%]' \
-  --eval-split 'train[95%:]' \
+  --train-split train \
+  --eval-split validation \
   --results-dir "${STAGE1_RESULTS_DIR}" \
   --precision bf16 \
   --print-config \
@@ -420,12 +436,12 @@ Hiện tại branch này mới có `config/state scaffold` cho `src_jax/train_st
 cd /kaggle/working/RAE
 
 uv run python src_jax/train_stage1.py \
-  --config /kaggle/working/RAE/configs/stage1/training/CelebAHQ256_DINOv2-B_decXL_tfds_kaggle.yaml \
+  --config /kaggle/working/RAE/configs/stage1/training/CelebAHQ256_DINOv2-B_decB_tfds_kaggle.yaml \
   --data-path /kaggle/working/shortcut_celebahq256/tensorflow_datasets \
   --data-format tfds \
   --dataset-name celebahq256 \
-  --train-split 'train[:95%]' \
-  --eval-split 'train[95%:]' \
+  --train-split train \
+  --eval-split validation \
   --results-dir /kaggle/working/results_all_jax/stage1_jax \
   --precision bf16
 ```
@@ -443,7 +459,7 @@ os.environ["ACTIVE_STATS_VALUE"] = active_stats_value
 
 print("ACTIVE_DECODER_PATH =", active_decoder)
 print("ACTIVE_STATS_VALUE =", active_stats_value)
-print("If Stage 1 export is not ready yet, the notebook falls back to the shared ImageNet decoder for Stage 2 smoke tests.")
+print("If Stage 1 export is not ready yet, the notebook falls back to the shared decoder for Stage 2 smoke tests.")
 """
     )
 
@@ -462,21 +478,17 @@ Hiện tại notebook tự fall back sang decoder shared từ `RAE-collections` 
     )
 
     stage2_train = code_cell(
-        """%%bash
-set -euo pipefail
-
-cd "${REPO_ROOT}"
-
-uv run python src_jax/train.py \
+        """%cd /kaggle/working/RAE
+!uv run python src_jax/train.py \
   --config "${STAGE2_KAGGLE_CFG}" \
   --data-path "${TFDS_DATA_DIR}" \
   --data-format tfds \
   --dataset-name celebahq256 \
-  --train-split 'train[:95%]' \
-  --eval-split 'train[95%:]' \
+  --train-split train \
+  --eval-split validation \
   --results-dir "${STAGE2_RESULTS_DIR}" \
   --precision bf16 \
-  --num-train-samples 28500 \
+  --num-train-samples "${STAGE2_NUM_TRAIN_SAMPLES}" \
   --wandb \
   --set "stage_1.params.pretrained_decoder_path=${ACTIVE_DECODER_PATH}" \
   --set "stage_1.params.normalization_stat_path=${ACTIVE_STATS_VALUE}" \
@@ -491,8 +503,8 @@ uv run python src_jax/train.py \
     recommendations = markdown_cell(
         """## Kaggle TPU v5e-8 recommendations
 
-- Nếu compile/OOM ở Stage 2, giảm `STAGE2_BATCH_SIZE` từ `64` xuống `32`.
-- Nếu Stage 1 GAN quá nặng khi trainer JAX cập bến, bắt đầu từ `STAGE1_BATCH_SIZE=16`.
+- `STAGE1_BATCH_SIZE=512` là giá trị bám config `main`; nếu Kaggle TPU không kham nổi khi trainer Stage 1 JAX hoàn chỉnh, hạ dần xuống `256`, `128`, `64`, rồi `32`.
+- `STAGE2_BATCH_SIZE=64`, `STAGE2_NUM_WORKERS=1`, `STAGE2_PREFETCH_FACTOR=8`, `STAGE2_CKPT_EVERY=210000`, `STAGE2_SAMPLE_EVERY=5000` là các giá trị đang khớp notebook TPU CelebA-HQ hiện có trong branch này.
 - Nếu gặp lỗi `cannot enable executable stack` từ `jaxlib`, chạy lại cell `clear_elf_execstack`.
 - Nếu muốn bám `main` hơn nữa ở Stage 2 sau khi Stage 1 xong, chỉ việc thay `ACTIVE_DECODER_PATH` và `ACTIVE_STATS_VALUE` bằng artifact mới; phần transport và optimizer hiện tại đã giữ đúng recipe `Linear + velocity + Euler`.
 """
@@ -506,6 +518,7 @@ uv run python src_jax/train.py \
             sync_env,
             prepare_tfds,
             download_assets,
+            inspect_splits,
             write_configs,
             stage1_dry_run,
             stage1_train_cmd,

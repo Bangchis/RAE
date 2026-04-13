@@ -236,6 +236,32 @@ eval:
         self.assertTrue(backend_cfg["data"]["random_flip"])
         self.assertFalse(backend_cfg["eval"]["random_flip"])
 
+    def test_lightning_dit_b_config_maps_expected_dimensions(self) -> None:
+        repo_cfg, config_path = load_repo_config(
+            "configs/stage2/training/CelebAHQ256/LightningDiT-B_DINOv2-B_tfds.yaml",
+        )
+        backend_cfg = build_backend_config_dict(
+            repo_cfg,
+            config_path=config_path,
+            mode="train",
+            data_path="/tmp/tfds_root",
+            data_format="tfds",
+            dataset_name="celebahq256",
+            train_split="train[:95%]",
+            eval_split="train[95%:]",
+            precision="bf16",
+            seed=13,
+            num_train_samples=30_000,
+            enable_eval=False,
+        )
+
+        self.assertEqual(backend_cfg["network_class"], "lightning_dit")
+        self.assertEqual(backend_cfg["network"]["hidden_size"], 768)
+        self.assertEqual(backend_cfg["network"]["depth"], 12)
+        self.assertEqual(backend_cfg["network"]["num_heads"], 12)
+        self.assertEqual(backend_cfg["data"]["dataset_name"], "celebahq256")
+        self.assertEqual(backend_cfg["data"]["train_split"], "train[:95%]")
+
     def test_celebahq_configs_default_training_random_flip_to_true(self) -> None:
         config_path = self._write_temp_config(
             """
