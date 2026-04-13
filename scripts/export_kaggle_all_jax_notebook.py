@@ -63,6 +63,7 @@ REPO_BRANCH = "jax-sit-dh-celebahq256"
 DATASET_ROOT = Path("/kaggle/input/shortcut-celebahq256")
 TFDS_DATA_DIR = DATASET_ROOT / "tensorflow_datasets"
 TFDS_BUILDERS_DIR = DATASET_ROOT / "tfds_builders"
+STAGE2_FID_REF = DATASET_ROOT / "data" / "celeba256_fidstats_ours.npz"
 WORK_ROOT = Path("/kaggle/working")
 REPO_ROOT = WORK_ROOT / "RAE"
 RESULTS_ROOT = WORK_ROOT / "results_all_jax"
@@ -75,7 +76,6 @@ STAGE2_CFG = REPO_ROOT / "configs" / "stage2" / "training" / "CelebAHQ256" / "Li
 
 STAGE1_DECODER_EXPORT = ARTIFACTS_ROOT / "celebahq256_stage1_decoder.pt"
 STAGE1_CKPT_PATH = STAGE1_RESULTS_DIR / "checkpoints" / "ep-last.pt"
-FALLBACK_DECODER_PATH = REPO_ROOT / "models" / "decoders" / "dinov2" / "wReg_base" / "decB_ganv3" / "dinov2_decoder.pt"
 DINO_DISC_CKPT = REPO_ROOT / "models" / "discs" / "dino_vit_small_patch8_224.pth"
 
 STAGE1_BATCH_SIZE = 512
@@ -84,6 +84,12 @@ STAGE2_NUM_WORKERS = 1
 STAGE2_PREFETCH_FACTOR = 8
 STAGE2_CKPT_EVERY = 210000
 STAGE2_SAMPLE_EVERY = 5000
+STAGE2_EVAL_EVERY = 5000
+STAGE2_FID_EVERY = 25000
+STAGE2_FID_NUM_SAMPLES = 4096
+STAGE2_EVAL_MAX_BATCHES = 16
+STAGE2_FID_PER_PROC_BATCH_SIZE = 4
+STAGE2_FID_BATCH_SIZE = 64
 
 dataset_info_candidates = sorted((TFDS_DATA_DIR / "celebahq256").glob("*/dataset_info.json"))
 dataset_info_path = dataset_info_candidates[0] if dataset_info_candidates else None
@@ -108,6 +114,7 @@ os.environ["REPO_URL"] = REPO_URL
 os.environ["REPO_BRANCH"] = REPO_BRANCH
 os.environ["TFDS_DATA_DIR"] = str(TFDS_DATA_DIR)
 os.environ["TFDS_BUILDERS_DIR"] = str(TFDS_BUILDERS_DIR)
+os.environ["STAGE2_FID_REF"] = str(STAGE2_FID_REF)
 os.environ["REPO_ROOT"] = str(REPO_ROOT)
 os.environ["RESULTS_ROOT"] = str(RESULTS_ROOT)
 os.environ["ARTIFACTS_ROOT"] = str(ARTIFACTS_ROOT)
@@ -117,7 +124,6 @@ os.environ["STAGE1_CFG"] = str(STAGE1_CFG)
 os.environ["STAGE2_CFG"] = str(STAGE2_CFG)
 os.environ["STAGE1_DECODER_EXPORT"] = str(STAGE1_DECODER_EXPORT)
 os.environ["STAGE1_CKPT_PATH"] = str(STAGE1_CKPT_PATH)
-os.environ["FALLBACK_DECODER_PATH"] = str(FALLBACK_DECODER_PATH)
 os.environ["DINO_DISC_CKPT"] = str(DINO_DISC_CKPT)
 os.environ["STAGE2_NUM_TRAIN_SAMPLES"] = str(stage2_num_train_samples)
 
@@ -125,11 +131,13 @@ print("repo:", REPO_URL, REPO_BRANCH)
 print("dataset:", DATASET_ROOT)
 print("dataset_info:", dataset_info_path)
 print("stage2_num_train_samples:", stage2_num_train_samples)
+print("stage2_fid_ref:", STAGE2_FID_REF)
 
 stage1_yaml = dedent(f\"\"\"\
 data:
   format: tfds
   dataset_name: celebahq256
+  data_dir: '{TFDS_DATA_DIR}'
   train_split: train
   eval_split: validation
   shuffle_buffer: 20000
@@ -200,12 +208,18 @@ gan:
     lpips_start: 0
     max_d_weight: 10000.0
     disc_updates: 1
+
+eval:
+  eval_interval: 1000
+  eval_model: false
+  max_batches: 16
 \"\"\")
 
 stage2_yaml = dedent(f\"\"\"\
 data:
   format: tfds
   dataset_name: celebahq256
+  data_dir: '{TFDS_DATA_DIR}'
   train_split: train
   eval_split: validation
   shuffle_buffer: 20000
@@ -290,6 +304,20 @@ training:
   decay_end_epoch: 800
   clip_grad: 1.0
   random_flip: true
+
+eval:
+  data_path: '{TFDS_DATA_DIR}'
+  tfds_split: validation
+  eval_every: {STAGE2_EVAL_EVERY}
+  batch_size: 4
+  max_batches: {STAGE2_EVAL_MAX_BATCHES}
+  eval_model: false
+  fid_ref: '{STAGE2_FID_REF}'
+  fid_every: {STAGE2_FID_EVERY}
+  fid_num_samples: {STAGE2_FID_NUM_SAMPLES}
+  fid_per_proc_batch_size: {STAGE2_FID_PER_PROC_BATCH_SIZE}
+  fid_batch_size: {STAGE2_FID_BATCH_SIZE}
+  fid_eval_model: false
 \"\"\")
 
 %cd /kaggle/working
@@ -302,7 +330,7 @@ training:
 !uv sync -q
 !uv run python scripts/clear_elf_execstack.py --package jaxlib --quiet-unchanged
 !mkdir -p models "{RESULTS_ROOT}" "{ARTIFACTS_ROOT}"
-!uv run hf download nyu-visionx/RAE-collections decoders/dinov2/wReg_base/decB_ganv3/dinov2_decoder.pt discs/dino_vit_small_patch8_224.pth --local-dir models
+!uv run hf download nyu-visionx/RAE-collections discs/dino_vit_small_patch8_224.pth --local-dir models
 
 STAGE1_CFG.write_text(stage1_yaml, encoding="utf-8")
 STAGE2_CFG.write_text(stage2_yaml, encoding="utf-8")
@@ -319,13 +347,14 @@ print(STAGE2_CFG)
   --data-format tfds \
   --dataset-name celebahq256 \
   --results-dir "${STAGE1_RESULTS_DIR}" \
-  --precision bf16
+  --precision bf16 \
+  --wandb
 """
     )
 
     stage1_extract = code_cell(
         """%cd /kaggle/working/RAE
-!uv run python src/extract_decoder.py \
+!uv run python src_jax/export_stage1_decoder.py \
   --config "${STAGE1_CFG}" \
   --ckpt "${STAGE1_CKPT_PATH}" \
   --use-ema \
@@ -352,7 +381,8 @@ print(STAGE2_CFG)
 
 - `STAGE1_BATCH_SIZE=512` là giá trị bám `main`; nếu Kaggle TPU không kham nổi khi trainer Stage 1 JAX hoàn chỉnh, hạ dần xuống `256`, `128`, `64`, `32`.
 - `STAGE2_BATCH_SIZE=64`, `num_workers=1`, `prefetch_factor=8`, `ckpt_every=210000`, `sample_every=5000` là các giá trị mình giữ theo notebook TPU CelebA-HQ hiện có trong branch này.
-- Lệnh extract hiện dùng `src/extract_decoder.py` để tạo file decoder mà Stage 2 JAX có thể dùng trực tiếp.
+- Stage 2 hiện đã bật `eval loss` trên split `validation` và dùng luôn `fid_ref=/kaggle/input/shortcut-celebahq256/data/celeba256_fidstats_ours.npz`.
+- Lệnh extract hiện dùng `src_jax/export_stage1_decoder.py` để đổi checkpoint Stage 1 JAX sang decoder `.pt` cho Stage 2.
 """
     )
 

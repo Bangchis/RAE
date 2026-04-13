@@ -98,6 +98,7 @@ class EvalConfig:
     eval_model: bool
     metrics: tuple[str, ...]
     reference_npz_path: str | None
+    max_batches: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +147,7 @@ def _build_eval_cfg(section: dict[str, Any]) -> EvalConfig:
         eval_model=bool(section.get("eval_model", False)),
         metrics=metrics,
         reference_npz_path=str(reference_npz_path) if reference_npz_path else None,
+        max_batches=int(section.get("max_batches", 16)),
     )
 
 
@@ -344,5 +346,6 @@ def runtime_config_to_dict(config: Stage1JaxRuntimeConfig) -> dict[str, Any]:
             "eval_model": config.evaluation.eval_model,
             "metrics": list(config.evaluation.metrics),
             "reference_npz_path": config.evaluation.reference_npz_path,
+            "max_batches": config.evaluation.max_batches,
         },
     }
