@@ -24,26 +24,28 @@ def code_cell(text: str) -> dict:
 
 def build_notebook() -> dict:
     title = markdown_cell(
-        """# RAE CelebA-HQ256 Kaggle TPU v5e-8 Runbook (All-JAX + LightningDiT-B)
+        """# RAE CelebA-HQ256 Kaggle TPU v5e-8 Minimal Runbook
 
-Notebook này bám hướng bạn đã chốt:
+Notebook này chỉ giữ 3 lệnh chính như bạn yêu cầu:
 
-- Stage 1: config giống `main` nhất có thể (`reconstruction + LPIPS + GAN`) nhưng đi theo all-JAX roadmap
-- Stage 2: `LightningDiT-B` trên TFDS CelebA-HQ256, chạy bằng JAX trên Kaggle TPU
+1. train Stage 1
+2. extract decoder từ Stage 1
+3. train Stage 2
 
-Lưu ý:
+Thiết lập hiện tại:
 
-- Notebook dùng split TFDS có sẵn là `train` và `validation`, không còn tự cắt `train[:95%]`.
-- Cell Stage 2 chạy được với branch hiện tại.
-- Cell Stage 1 all-JAX hiện là launch contract cho trainer JAX đang được port. Notebook vẫn xuất đủ config và lệnh để bạn giữ một pipeline Kaggle thống nhất.
-- Nếu TPU compile hoặc OOM, giảm `STAGE1_BATCH_SIZE` từ `512` xuống `256/128/64/32`, và giảm `STAGE2_BATCH_SIZE` từ `64` xuống `32`.
+- dataset root cố định: `/kaggle/input/shortcut-celebahq256`
+- split dùng thẳng `train` và `validation`
+- Stage 1 bám config `main` hơn: `global_batch_size=512`
+- Stage 2 giữ override Kaggle TPU đang dùng trong branch này: `batch=64`, `num_workers=1`, `prefetch_factor=8`, `ckpt_every=210000`, `sample_every=5000`
 """
     )
 
-    env_setup = code_cell(
+    setup = code_cell(
         """import json
 import os
 from pathlib import Path
+from textwrap import dedent
 
 try:
     from kaggle_secrets import UserSecretsClient
@@ -52,35 +54,27 @@ try:
     wandb_key = secrets.get_secret("WANDB_KEY")
     os.environ["WANDB_API_KEY"] = wandb_key
     os.environ["WANDB_KEY"] = wandb_key
-
-    netrc = Path.home() / ".netrc"
-    netrc.write_text(f"machine api.wandb.ai login user password {wandb_key}\\n")
-    os.chmod(netrc, 0o600)
-    print("Loaded WANDB_KEY from Kaggle Secrets.")
 except Exception as exc:
     print(f"Skipping Kaggle secret bootstrap: {exc}")
 
-RAE_REPO_URL = "https://github.com/Bangchis/RAE.git"
-RAE_BRANCH = "jax-sit-dh-celebahq256"
+REPO_URL = "https://github.com/Bangchis/RAE.git"
+REPO_BRANCH = "jax-sit-dh-celebahq256"
 
-INPUT_ROOT = Path("/kaggle/input/shortcut-celebahq-256")
-TFDS_SOURCE_DIR = INPUT_ROOT / "tensorflow_datasets"
-TFDS_BUILDERS_DIR = INPUT_ROOT / "tfds_builders"
-
+DATASET_ROOT = Path("/kaggle/input/shortcut-celebahq256")
+TFDS_DATA_DIR = DATASET_ROOT / "tensorflow_datasets"
+TFDS_BUILDERS_DIR = DATASET_ROOT / "tfds_builders"
 WORK_ROOT = Path("/kaggle/working")
 REPO_ROOT = WORK_ROOT / "RAE"
-TFDS_WORK_ROOT = WORK_ROOT / "shortcut_celebahq256"
-TFDS_DATA_DIR = TFDS_WORK_ROOT / "tensorflow_datasets"
 RESULTS_ROOT = WORK_ROOT / "results_all_jax"
 ARTIFACTS_ROOT = WORK_ROOT / "artifacts"
 
 STAGE1_RESULTS_DIR = RESULTS_ROOT / "stage1_jax"
 STAGE2_RESULTS_DIR = RESULTS_ROOT / "stage2_jax"
-STAGE1_KAGGLE_CFG = REPO_ROOT / "configs" / "stage1" / "training" / "CelebAHQ256_DINOv2-B_decB_tfds_kaggle.yaml"
-STAGE2_KAGGLE_CFG = REPO_ROOT / "configs" / "stage2" / "training" / "CelebAHQ256" / "LightningDiT-B_DINOv2-B_tfds_kaggle.yaml"
+STAGE1_CFG = REPO_ROOT / "configs" / "stage1" / "training" / "CelebAHQ256_DINOv2-B_decB_tfds_kaggle.yaml"
+STAGE2_CFG = REPO_ROOT / "configs" / "stage2" / "training" / "CelebAHQ256" / "LightningDiT-B_DINOv2-B_tfds_kaggle.yaml"
 
 STAGE1_DECODER_EXPORT = ARTIFACTS_ROOT / "celebahq256_stage1_decoder.pt"
-STAGE1_STATS_PATH = ARTIFACTS_ROOT / "celebahq256_stage1_stat.pt"
+STAGE1_CKPT_PATH = STAGE1_RESULTS_DIR / "checkpoints" / "ep-last.pt"
 FALLBACK_DECODER_PATH = REPO_ROOT / "models" / "decoders" / "dinov2" / "wReg_base" / "decB_ganv3" / "dinov2_decoder.pt"
 DINO_DISC_CKPT = REPO_ROOT / "models" / "discs" / "dino_vit_small_patch8_224.pth"
 
@@ -91,29 +85,16 @@ STAGE2_PREFETCH_FACTOR = 8
 STAGE2_CKPT_EVERY = 210000
 STAGE2_SAMPLE_EVERY = 5000
 
-os.environ["RAE_REPO_URL"] = RAE_REPO_URL
-os.environ["RAE_BRANCH"] = RAE_BRANCH
-os.environ["TFDS_SOURCE_DIR"] = str(TFDS_SOURCE_DIR)
-os.environ["TFDS_BUILDERS_DIR"] = str(TFDS_BUILDERS_DIR)
-os.environ["TFDS_WORK_ROOT"] = str(TFDS_WORK_ROOT)
-os.environ["TFDS_DATA_DIR"] = str(TFDS_DATA_DIR)
-os.environ["REPO_ROOT"] = str(REPO_ROOT)
-os.environ["RESULTS_ROOT"] = str(RESULTS_ROOT)
-os.environ["ARTIFACTS_ROOT"] = str(ARTIFACTS_ROOT)
-os.environ["STAGE1_RESULTS_DIR"] = str(STAGE1_RESULTS_DIR)
-os.environ["STAGE2_RESULTS_DIR"] = str(STAGE2_RESULTS_DIR)
-os.environ["STAGE1_KAGGLE_CFG"] = str(STAGE1_KAGGLE_CFG)
-os.environ["STAGE2_KAGGLE_CFG"] = str(STAGE2_KAGGLE_CFG)
-os.environ["STAGE1_DECODER_EXPORT"] = str(STAGE1_DECODER_EXPORT)
-os.environ["STAGE1_STATS_PATH"] = str(STAGE1_STATS_PATH)
-os.environ["FALLBACK_DECODER_PATH"] = str(FALLBACK_DECODER_PATH)
-os.environ["DINO_DISC_CKPT"] = str(DINO_DISC_CKPT)
-os.environ["STAGE1_BATCH_SIZE"] = str(STAGE1_BATCH_SIZE)
-os.environ["STAGE2_BATCH_SIZE"] = str(STAGE2_BATCH_SIZE)
-os.environ["STAGE2_NUM_WORKERS"] = str(STAGE2_NUM_WORKERS)
-os.environ["STAGE2_PREFETCH_FACTOR"] = str(STAGE2_PREFETCH_FACTOR)
-os.environ["STAGE2_CKPT_EVERY"] = str(STAGE2_CKPT_EVERY)
-os.environ["STAGE2_SAMPLE_EVERY"] = str(STAGE2_SAMPLE_EVERY)
+dataset_info_candidates = sorted((TFDS_DATA_DIR / "celebahq256").glob("*/dataset_info.json"))
+dataset_info_path = dataset_info_candidates[0] if dataset_info_candidates else None
+stage2_num_train_samples = 30000
+if dataset_info_path is not None:
+    payload = json.loads(dataset_info_path.read_text())
+    raw_splits = payload.get("splits", {})
+    if isinstance(raw_splits, dict):
+        train_info = raw_splits.get("train", {})
+        if isinstance(train_info, dict):
+            stage2_num_train_samples = int(train_info.get("numExamples", stage2_num_train_samples))
 
 os.environ["JAX_PLATFORMS"] = "tpu,cpu"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -123,113 +104,27 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 os.environ["UV_PROJECT_ENVIRONMENT"] = "/tmp/.venv"
 os.environ["UV_CACHE_DIR"] = "/tmp/uv-cache"
 
-print("Repo URL:", RAE_REPO_URL)
-print("Branch:", RAE_BRANCH)
-print("TFDS input root:", TFDS_SOURCE_DIR)
-print("Planned Stage 1 cfg:", STAGE1_KAGGLE_CFG)
-print("Planned Stage 2 cfg:", STAGE2_KAGGLE_CFG)
-print("Stage 1 batch (main-like):", STAGE1_BATCH_SIZE)
-print("Stage 2 Kaggle TPU settings:", json.dumps({
-    "batch": STAGE2_BATCH_SIZE,
-    "num_workers": STAGE2_NUM_WORKERS,
-    "prefetch_factor": STAGE2_PREFETCH_FACTOR,
-    "ckpt_every": STAGE2_CKPT_EVERY,
-    "sample_every": STAGE2_SAMPLE_EVERY,
-}, indent=2))
-"""
-    )
-
-    clone_repo = code_cell(
-        """%cd /kaggle/working
-!rm -rf RAE
-!git clone "${RAE_REPO_URL}" RAE
-%cd /kaggle/working/RAE
-!git checkout "${RAE_BRANCH}"
-!curl -LsSf https://astral.sh/uv/install.sh | sh
-!ln -sf /root/.local/bin/uv /usr/local/bin/uv
-"""
-    )
-
-    sync_env = code_cell(
-        """%cd /kaggle/working/RAE
-!uv sync -q
-!uv run python scripts/clear_elf_execstack.py --package jaxlib --quiet-unchanged
-!env JAX_PLATFORMS=tpu,cpu XLA_PYTHON_CLIENT_PREALLOCATE=false uv run python -c "import os,sys,jax,jaxlib; print('python:', sys.executable); print('jax:', jax.__version__); print('jaxlib:', jaxlib.__version__); print('default backend:', jax.default_backend()); print('local device count:', jax.local_device_count()); print('devices:', jax.devices()); print('host cpu cores:', os.cpu_count())"
-"""
-    )
-
-    prepare_tfds = code_cell(
-        """%cd /kaggle/working
-!rm -rf "${TFDS_WORK_ROOT}"
-!mkdir -p "${TFDS_WORK_ROOT}"
-!cp -r "${TFDS_SOURCE_DIR}" "${TFDS_WORK_ROOT}/"
-!cp -r "${TFDS_BUILDERS_DIR}" "${TFDS_WORK_ROOT}/"
-!echo "TFDS work root: ${TFDS_WORK_ROOT}"
-!find "${TFDS_WORK_ROOT}" -maxdepth 2 -type d | sort | head -n 50
-"""
-    )
-
-    download_assets = code_cell(
-        """%cd /kaggle/working/RAE
-!mkdir -p models
-!uv run hf download nyu-visionx/RAE-collections \
-  decoders/dinov2/wReg_base/decB_ganv3/dinov2_decoder.pt \
-  discs/dino_vit_small_patch8_224.pth \
-  --local-dir models
-!ls -lah "${FALLBACK_DECODER_PATH}"
-!ls -lah "${DINO_DISC_CKPT}"
-"""
-    )
-
-    inspect_splits = code_cell(
-        """import json
-from pathlib import Path
-
-candidate_infos = sorted(TFDS_DATA_DIR.glob("celebahq256/**/dataset_info.json"))
-dataset_info_path = candidate_infos[-1] if candidate_infos else None
-print("dataset_info_path =", dataset_info_path)
-
-def _extract_split_counts(payload):
-    counts = {}
-    raw_splits = payload.get("splits", {})
-    if isinstance(raw_splits, dict):
-        for name, value in raw_splits.items():
-            if isinstance(value, dict):
-                counts[name] = value.get("numExamples") or value.get("shardLengths")
-    elif isinstance(raw_splits, list):
-        for value in raw_splits:
-            if isinstance(value, dict):
-                name = value.get("name")
-                if name:
-                    counts[name] = value.get("numExamples") or value.get("shardLengths")
-    normalized = {}
-    for name, value in counts.items():
-        if isinstance(value, list):
-            normalized[name] = sum(int(x) for x in value)
-        elif value is not None:
-            normalized[name] = int(value)
-    return normalized
-
-split_counts = {}
-if dataset_info_path is not None:
-    payload = json.loads(dataset_info_path.read_text())
-    split_counts = _extract_split_counts(payload)
-
-print("split_counts =", split_counts)
-stage2_num_train_samples = int(split_counts.get("train", 28500))
+os.environ["REPO_URL"] = REPO_URL
+os.environ["REPO_BRANCH"] = REPO_BRANCH
+os.environ["TFDS_DATA_DIR"] = str(TFDS_DATA_DIR)
+os.environ["TFDS_BUILDERS_DIR"] = str(TFDS_BUILDERS_DIR)
+os.environ["REPO_ROOT"] = str(REPO_ROOT)
+os.environ["RESULTS_ROOT"] = str(RESULTS_ROOT)
+os.environ["ARTIFACTS_ROOT"] = str(ARTIFACTS_ROOT)
+os.environ["STAGE1_RESULTS_DIR"] = str(STAGE1_RESULTS_DIR)
+os.environ["STAGE2_RESULTS_DIR"] = str(STAGE2_RESULTS_DIR)
+os.environ["STAGE1_CFG"] = str(STAGE1_CFG)
+os.environ["STAGE2_CFG"] = str(STAGE2_CFG)
+os.environ["STAGE1_DECODER_EXPORT"] = str(STAGE1_DECODER_EXPORT)
+os.environ["STAGE1_CKPT_PATH"] = str(STAGE1_CKPT_PATH)
+os.environ["FALLBACK_DECODER_PATH"] = str(FALLBACK_DECODER_PATH)
+os.environ["DINO_DISC_CKPT"] = str(DINO_DISC_CKPT)
 os.environ["STAGE2_NUM_TRAIN_SAMPLES"] = str(stage2_num_train_samples)
-print("STAGE2_NUM_TRAIN_SAMPLES =", stage2_num_train_samples)
-"""
-    )
 
-    write_configs = code_cell(
-        """from pathlib import Path
-from textwrap import dedent
-
-REPO_ROOT.mkdir(parents=True, exist_ok=True)
-ARTIFACTS_ROOT.mkdir(parents=True, exist_ok=True)
-STAGE1_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-STAGE2_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+print("repo:", REPO_URL, REPO_BRANCH)
+print("dataset:", DATASET_ROOT)
+print("dataset_info:", dataset_info_path)
+print("stage2_num_train_samples:", stage2_num_train_samples)
 
 stage1_yaml = dedent(f\"\"\"\
 data:
@@ -307,9 +202,6 @@ gan:
     disc_updates: 1
 \"\"\")
 
-active_decoder = STAGE1_DECODER_EXPORT if STAGE1_DECODER_EXPORT.exists() else FALLBACK_DECODER_PATH
-active_stats_yaml = f\"'{STAGE1_STATS_PATH}'\" if STAGE1_STATS_PATH.exists() else "null"
-
 stage2_yaml = dedent(f\"\"\"\
 data:
   format: tfds
@@ -328,10 +220,10 @@ stage_1:
       dinov2_path: 'facebook/dinov2-with-registers-base'
       normalize: true
     decoder_config_path: 'configs/decoder/ViTB'
-    pretrained_decoder_path: '{active_decoder}'
+    pretrained_decoder_path: '{STAGE1_DECODER_EXPORT}'
     noise_tau: 0.0
     reshape_to_2d: true
-    normalization_stat_path: {active_stats_yaml}
+    normalization_stat_path: null
 
 stage_2:
   target: stage2.models.lightningDiT.LightningDiT
@@ -400,132 +292,78 @@ training:
   random_flip: true
 \"\"\")
 
-STAGE1_KAGGLE_CFG.write_text(stage1_yaml, encoding="utf-8")
-STAGE2_KAGGLE_CFG.write_text(stage2_yaml, encoding="utf-8")
+%cd /kaggle/working
+!rm -rf RAE
+!git clone "{REPO_URL}" RAE
+%cd /kaggle/working/RAE
+!git checkout "{REPO_BRANCH}"
+!curl -LsSf https://astral.sh/uv/install.sh | sh
+!ln -sf /root/.local/bin/uv /usr/local/bin/uv
+!uv sync -q
+!uv run python scripts/clear_elf_execstack.py --package jaxlib --quiet-unchanged
+!mkdir -p models "{RESULTS_ROOT}" "{ARTIFACTS_ROOT}"
+!uv run hf download nyu-visionx/RAE-collections decoders/dinov2/wReg_base/decB_ganv3/dinov2_decoder.pt discs/dino_vit_small_patch8_224.pth --local-dir models
 
-print("Stage 1 Kaggle cfg:", STAGE1_KAGGLE_CFG)
-print(STAGE1_KAGGLE_CFG.read_text())
-print("Stage 2 Kaggle cfg:", STAGE2_KAGGLE_CFG)
-print(STAGE2_KAGGLE_CFG.read_text())
+STAGE1_CFG.write_text(stage1_yaml, encoding="utf-8")
+STAGE2_CFG.write_text(stage2_yaml, encoding="utf-8")
+print(STAGE1_CFG)
+print(STAGE2_CFG)
 """
     )
 
-    stage1_dry_run = code_cell(
+    stage1_train = code_cell(
         """%cd /kaggle/working/RAE
 !uv run python src_jax/train_stage1.py \
-  --config "${STAGE1_KAGGLE_CFG}" \
+  --config "${STAGE1_CFG}" \
   --data-path "${TFDS_DATA_DIR}" \
   --data-format tfds \
   --dataset-name celebahq256 \
-  --train-split train \
-  --eval-split validation \
   --results-dir "${STAGE1_RESULTS_DIR}" \
-  --precision bf16 \
-  --print-config \
-  --dry-run
-"""
-    )
-
-    stage1_train_cmd = markdown_cell(
-        """## Stage 1 all-JAX launch command
-
-Cell bên dưới là đúng command contract cho Stage 1 main-like JAX trên Kaggle TPU.  
-Hiện tại branch này mới có `config/state scaffold` cho `src_jax/train_stage1.py`, nên bạn giữ command này để chạy ngay khi phần trainer `RAE + LPIPS + GAN + DINO-disc` được port xong.
-
-```bash
-cd /kaggle/working/RAE
-
-uv run python src_jax/train_stage1.py \
-  --config /kaggle/working/RAE/configs/stage1/training/CelebAHQ256_DINOv2-B_decB_tfds_kaggle.yaml \
-  --data-path /kaggle/working/shortcut_celebahq256/tensorflow_datasets \
-  --data-format tfds \
-  --dataset-name celebahq256 \
-  --train-split train \
-  --eval-split validation \
-  --results-dir /kaggle/working/results_all_jax/stage1_jax \
   --precision bf16
-```
 """
     )
 
-    handoff = code_cell(
-        """from pathlib import Path
-
-active_decoder = STAGE1_DECODER_EXPORT if STAGE1_DECODER_EXPORT.exists() else FALLBACK_DECODER_PATH
-active_stats_value = str(STAGE1_STATS_PATH) if STAGE1_STATS_PATH.exists() else "null"
-
-os.environ["ACTIVE_DECODER_PATH"] = str(active_decoder)
-os.environ["ACTIVE_STATS_VALUE"] = active_stats_value
-
-print("ACTIVE_DECODER_PATH =", active_decoder)
-print("ACTIVE_STATS_VALUE =", active_stats_value)
-print("If Stage 1 export is not ready yet, the notebook falls back to the shared decoder for Stage 2 smoke tests.")
-"""
-    )
-
-    stats_guidance = markdown_cell(
-        """## Decoder handoff và latent stats
-
-Đường đi mục tiêu sau khi Stage 1 all-JAX hoàn chỉnh:
-
-1. export decoder mới từ checkpoint Stage 1 vào `/kaggle/working/artifacts/celebahq256_stage1_decoder.pt`
-2. build latent stats mới vào `/kaggle/working/artifacts/celebahq256_stage1_stat.pt`
-3. train Stage 2 với đúng decoder và stats đó
-
-Hiện tại notebook tự fall back sang decoder shared từ `RAE-collections` nếu artifact Stage 1 chưa tồn tại.  
-`normalization_stat_path` cũng tự để `null` nếu file latent stat chưa có, nên bạn vẫn smoke-test được Stage 2 trước.
+    stage1_extract = code_cell(
+        """%cd /kaggle/working/RAE
+!uv run python src/extract_decoder.py \
+  --config "${STAGE1_CFG}" \
+  --ckpt "${STAGE1_CKPT_PATH}" \
+  --use-ema \
+  --out "${STAGE1_DECODER_EXPORT}"
 """
     )
 
     stage2_train = code_cell(
         """%cd /kaggle/working/RAE
 !uv run python src_jax/train.py \
-  --config "${STAGE2_KAGGLE_CFG}" \
+  --config "${STAGE2_CFG}" \
   --data-path "${TFDS_DATA_DIR}" \
   --data-format tfds \
   --dataset-name celebahq256 \
-  --train-split train \
-  --eval-split validation \
   --results-dir "${STAGE2_RESULTS_DIR}" \
   --precision bf16 \
   --num-train-samples "${STAGE2_NUM_TRAIN_SAMPLES}" \
-  --wandb \
-  --set "stage_1.params.pretrained_decoder_path=${ACTIVE_DECODER_PATH}" \
-  --set "stage_1.params.normalization_stat_path=${ACTIVE_STATS_VALUE}" \
-  --set "training.global_batch_size=${STAGE2_BATCH_SIZE}" \
-  --set "training.num_workers=${STAGE2_NUM_WORKERS}" \
-  --set "training.prefetch_factor=${STAGE2_PREFETCH_FACTOR}" \
-  --set "training.ckpt_every=${STAGE2_CKPT_EVERY}" \
-  --set "training.sample_every=${STAGE2_SAMPLE_EVERY}"
+  --wandb
 """
     )
 
-    recommendations = markdown_cell(
-        """## Kaggle TPU v5e-8 recommendations
+    notes = markdown_cell(
+        """Ghi chú ngắn:
 
-- `STAGE1_BATCH_SIZE=512` là giá trị bám config `main`; nếu Kaggle TPU không kham nổi khi trainer Stage 1 JAX hoàn chỉnh, hạ dần xuống `256`, `128`, `64`, rồi `32`.
-- `STAGE2_BATCH_SIZE=64`, `STAGE2_NUM_WORKERS=1`, `STAGE2_PREFETCH_FACTOR=8`, `STAGE2_CKPT_EVERY=210000`, `STAGE2_SAMPLE_EVERY=5000` là các giá trị đang khớp notebook TPU CelebA-HQ hiện có trong branch này.
-- Nếu gặp lỗi `cannot enable executable stack` từ `jaxlib`, chạy lại cell `clear_elf_execstack`.
-- Nếu muốn bám `main` hơn nữa ở Stage 2 sau khi Stage 1 xong, chỉ việc thay `ACTIVE_DECODER_PATH` và `ACTIVE_STATS_VALUE` bằng artifact mới; phần transport và optimizer hiện tại đã giữ đúng recipe `Linear + velocity + Euler`.
+- `STAGE1_BATCH_SIZE=512` là giá trị bám `main`; nếu Kaggle TPU không kham nổi khi trainer Stage 1 JAX hoàn chỉnh, hạ dần xuống `256`, `128`, `64`, `32`.
+- `STAGE2_BATCH_SIZE=64`, `num_workers=1`, `prefetch_factor=8`, `ckpt_every=210000`, `sample_every=5000` là các giá trị mình giữ theo notebook TPU CelebA-HQ hiện có trong branch này.
+- Lệnh extract hiện dùng `src/extract_decoder.py` để tạo file decoder mà Stage 2 JAX có thể dùng trực tiếp.
 """
     )
 
     return {
         "cells": [
             title,
-            env_setup,
-            clone_repo,
-            sync_env,
-            prepare_tfds,
-            download_assets,
-            inspect_splits,
-            write_configs,
-            stage1_dry_run,
-            stage1_train_cmd,
-            handoff,
-            stats_guidance,
+            setup,
+            stage1_train,
+            stage1_extract,
             stage2_train,
-            recommendations,
+            notes,
         ],
         "metadata": {
             "kernelspec": {
